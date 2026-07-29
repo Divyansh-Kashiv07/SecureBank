@@ -484,4 +484,23 @@ Shows the integration of Java Collections (like `TreeMap`) to sort and filter la
 ![Reports](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/reports.png)
 
 ---
+
+## 5. Quick Test & Demo Guide (For Examiners)
+
+To quickly evaluate the software during the viva, please follow these steps to log in as a pre-configured customer:
+
+1. **Launch the Application**: Extract `SecureBank-Release.zip` and run `SecureBank.exe`, or start the program via your IDE.
+2. **Enter Customer ID**: Type `CUSTOMER-1` into the Customer ID field.
+3. **Enter PIN**: Type `1234` into the PIN field.
+4. **Click Login**: You will instantly be authenticated and routed to the secure dashboard.
+
+**Available Demo Accounts for Testing:**
+
+| Customer ID | PIN  | Owner Name       | Notes                                      |
+|-------------|------|------------------|--------------------------------------------|
+| `CUSTOMER-1`| `1234` | Deepanshu Kumar | Has both a Savings and a Current account.  |
+| `CUSTOMER-2`| `5678` | Priya Sharma    | Great for testing fund transfers.          |
+| `CUSTOMER-3`| `9012` | Rahul Verma     | Test loan applications with this account.  |
+
+---
 *End of Examination Guide. Print this document to PDF and distribute it to the team before the Viva.*
