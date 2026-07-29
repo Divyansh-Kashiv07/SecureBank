@@ -267,28 +267,28 @@ package.bat
 
 > Take screenshots of the running app and save them in the `screenshots/` folder.
 
-![Login Screen](screenshots/login.png)
+![Login Screen](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/login.png)
 *Login screen — enter Customer ID and PIN*
 
-![Dashboard](screenshots/dashboard.png)
+![Dashboard](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/dashboard.png)
 *Dashboard — account balance, quick actions, recent transactions, chart*
 
-![Deposit/Withdraw](screenshots/deposit_withdraw.png)
+![Deposit/Withdraw](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/deposit_withdraw.png)
 *Deposit and Withdraw form with real-time balance*
 
-![Fund Transfer](screenshots/transfer.png)
+![Fund Transfer](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/transfer.png)
 *Fund transfer between accounts*
 
-![Transaction History](screenshots/history.png)
+![Transaction History](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/history.png)
 *Searchable, filterable transaction history table*
 
-![Loans](screenshots/loans.png)
+![Loans](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/loans.png)
 *Loan application form and status panel*
 
-![Reports](screenshots/reports.png)
+![Reports](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/reports.png)
 *Reports with TreeMap-sorted account balances and chart*
 
-![Settings](screenshots/settings.png)
+![Settings](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/settings.png)
 *Settings with Tabbed Interface for dynamic Font Scaling and Professional Themes (Neon, Navy Blue, Darker Black)*
 
 ---
@@ -464,24 +464,24 @@ During the presentation, show the examiner these core screens to highlight the p
 
 ### The Login Screen
 The entry point of the app, ensuring secure access.
-![Login Screen](screenshots/login.png)
+![Login Screen](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/login.png)
 
 ### The Dashboard
 A centralized hub showing the account overview, quick actions, and recent transaction history.
-![Dashboard](screenshots/dashboard.png)
+![Dashboard](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/dashboard.png)
 
 ### Dynamic Settings & Theming
 The professional settings area utilizing a clean Tabbed interface where the user can swap between **Neon**, **Navy Blue**, and **Darker Black**.
 > *Examiner Note: Emphasize that most Java Swing projects look outdated. This project uses dynamic look-and-feel updates to rival modern web applications.*
-![Settings](screenshots/settings.png)
+![Settings](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/settings.png)
 
 ### Fund Transfers (Deadlock-Safe)
 The transfer panel. *Divyansh can mention here how lock-ordering prevents deadlocks when two accounts transfer to each other simultaneously.*
-![Fund Transfer](screenshots/transfer.png)
+![Fund Transfer](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/transfer.png)
 
 ### Transaction History & Reports
 Shows the integration of Java Collections (like `TreeMap`) to sort and filter large amounts of transactional data efficiently.
-![Reports](screenshots/reports.png)
+![Reports](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/reports.png)
 
 ---
 *End of Examination Guide. Print this document to PDF and distribute it to the team before the Viva.*
