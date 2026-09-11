@@ -17,6 +17,7 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <flatlaf.version>3.7.2</flatlaf.version>
+        <junit.version>5.10.2</junit.version>
         <mainClass>com.securebank.main.Main</mainClass>
     </properties>
 
@@ -26,6 +27,14 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>${flatlaf.version}</version>
+        </dependency>
+
+        <!-- JUnit 5 — test framework for domain, persistence, and server tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -39,6 +48,20 @@
                 <configuration>
                     <source>17</source>
                     <target>17</target>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire — runs JUnit 5 tests (mvn test / mvn verify) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <!-- Isolate test persistence: FileIOHelper reads this once at class-load,
+                         so it must be set for the whole test JVM before any test runs -->
+                    <systemPropertyVariables>
+                        <securebank.data.dir>${project.build.directory}/test-data</securebank.data.dir>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
 

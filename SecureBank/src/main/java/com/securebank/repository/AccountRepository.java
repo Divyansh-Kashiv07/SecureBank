@@ -139,8 +139,10 @@ public class AccountRepository {
     /**
      * Saves all accounts to a file.
      * RUBRIC: Unit 4 — File I/O with Character Streams.
+     *
+     * @throws java.io.IOException if persistence fails — callers must handle this
      */
-    public void saveToFile() {
+    public void saveToFile() throws java.io.IOException {
         FileIOHelper.saveAccounts(repository.getAll());
     }
 

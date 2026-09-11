@@ -36,6 +36,21 @@ public class InsufficientBalanceException extends Exception {
         this.availableBalance = availableBalance;
     }
 
+    /**
+     * Constructs the exception with a fully custom message (e.g., the
+     * minimum-balance rule) while keeping the structured details.
+     *
+     * @param message          the specific business-rule message
+     * @param attemptedAmount  the amount the user tried to withdraw/transfer
+     * @param availableBalance the actual balance available in the account
+     */
+    public InsufficientBalanceException(String message, double attemptedAmount,
+                                        double availableBalance) {
+        super(message);
+        this.attemptedAmount = attemptedAmount;
+        this.availableBalance = availableBalance;
+    }
+
     public double getAttemptedAmount() {
         return attemptedAmount;
     }

@@ -8,7 +8,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
 /**
- * LoanPanel — loan application and status view.
+ * LoanPanel — loan application and status view with polished styling.
  */
 public class LoanPanel extends JPanel {
 
@@ -23,8 +23,6 @@ public class LoanPanel extends JPanel {
     private StyledTextField purposeField;
     private StyledButton applyButton;
     private JPanel loanStatusPanel;
-
-
 
     public LoanPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
@@ -55,7 +53,8 @@ public class LoanPanel extends JPanel {
         columnsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         // ---- Left: Application Form ----
-        CardPanel formCard = new CardPanel(AppLanguage.get("loan.apply"), StyledButton.ACCENT_TEAL);
+        CardPanel formCard = new CardPanel(AppLanguage.get("loan.apply"),
+                ThemeManager.getPrimaryAccentColor());
         formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
 
         formCard.add(Box.createVerticalStrut(20));
@@ -91,7 +90,8 @@ public class LoanPanel extends JPanel {
         formCard.add(purposeField);
         formCard.add(Box.createVerticalStrut(20));
 
-        applyButton = new StyledButton(AppLanguage.get("loan.apply.button"), StyledButton.ACCENT_TEAL);
+        applyButton = new StyledButton(AppLanguage.get("loan.apply.button"),
+                ThemeManager.getPrimaryAccentColor());
         applyButton.setMaximumSize(new Dimension(350, 44));
         applyButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         applyButton.addActionListener(e -> handleApply());
@@ -119,7 +119,8 @@ public class LoanPanel extends JPanel {
         statusCard.add(scrollPane, BorderLayout.CENTER);
 
         // Refresh button
-        StyledButton refreshBtn = new StyledButton(AppLanguage.get("loan.refresh"), StyledButton.PRIMARY);
+        StyledButton refreshBtn = new StyledButton(AppLanguage.get("loan.refresh"),
+                ThemeManager.getPrimaryAccentColor());
         refreshBtn.setPreferredSize(new Dimension(120, 35));
         refreshBtn.addActionListener(e -> loadLoanStatus());
 
@@ -202,7 +203,8 @@ public class LoanPanel extends JPanel {
                         NotificationPanel.showError(parentFrame, error);
                     }
                 } catch (Exception e) {
-                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.error") + ": " + e.getMessage());
+                    NotificationPanel.showError(parentFrame,
+                            AppLanguage.get("common.error") + ": " + e.getMessage());
                 }
             }
         }.execute();
@@ -255,7 +257,7 @@ public class LoanPanel extends JPanel {
         row.setOpaque(false);
         row.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, ThemeManager.getBorderColor()),
-                new EmptyBorder(6, 0, 6, 0)
+                new EmptyBorder(8, 0, 8, 0)
         ));
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
 

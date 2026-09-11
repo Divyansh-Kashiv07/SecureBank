@@ -8,6 +8,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,10 +16,12 @@ import java.util.List;
 /**
  * TransactionHistoryPanel — searchable/filterable transaction history.
  *
- * RUBRIC COVERAGE:
- * - Unit 5: JTable for data display
- * - Unit 2: Lambda/Streams for filtering transactions
- * - Unit 2: Arrays / Jagged arrays for monthly transaction summary grid
+ * Features:
+ * - Polished table with alternating row colors
+ * - Custom table header styling
+ * - Color-coded amounts
+ * - Smooth hover effects
+ * - Professional filter bar
  */
 public class TransactionHistoryPanel extends JPanel {
 
@@ -72,7 +75,8 @@ public class TransactionHistoryPanel extends JPanel {
         typeFilter.setFont(ThemeManager.getFont(13));
         typeFilter.setPreferredSize(new Dimension(150, 35));
 
-        filterButton = new StyledButton(AppLanguage.get("history.filter"), StyledButton.ACCENT_TEAL);
+        filterButton = new StyledButton(AppLanguage.get("history.filter"),
+                ThemeManager.getPrimaryAccentColor());
         filterButton.setPreferredSize(new Dimension(100, 35));
         filterButton.addActionListener(e -> applyFilter());
 
@@ -80,7 +84,7 @@ public class TransactionHistoryPanel extends JPanel {
         accLabel.setForeground(ThemeManager.getTextMutedColor());
         JLabel typeLabel = new JLabel(AppLanguage.get("history.type"));
         typeLabel.setForeground(ThemeManager.getTextMutedColor());
-        
+
         filterBar.add(accLabel);
         filterBar.add(accountSelector);
         filterBar.add(typeLabel);
@@ -101,33 +105,61 @@ public class TransactionHistoryPanel extends JPanel {
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false; // Read-only table
+                return false;
             }
         };
 
         transactionTable = new JTable(tableModel);
         transactionTable.setFont(ThemeManager.getFont(13));
-        transactionTable.setRowHeight(30);
-        transactionTable.getTableHeader().setFont(ThemeManager.getBoldFont(13));
-        transactionTable.getTableHeader().setBackground(ThemeManager.getBackgroundColor());
-        transactionTable.getTableHeader().setForeground(ThemeManager.getTextLightColor());
-        transactionTable.setSelectionBackground(ThemeManager.getSidebarHoverColor());
-        transactionTable.setGridColor(ThemeManager.getBorderColor());
+        transactionTable.setRowHeight(36);
+        transactionTable.setSelectionBackground(ThemeManager.getTableSelectionBackground());
+        transactionTable.setSelectionForeground(ThemeManager.getTableSelectionForeground());
+        transactionTable.setGridColor(ThemeManager.getTableGridColor());
+        transactionTable.setShowHorizontalLines(true);
+        transactionTable.setShowVerticalLines(false);
+        transactionTable.setIntercellSpacing(new Dimension(0, 1));
+        transactionTable.setFillsViewportHeight(true);
 
-        // Color-code amounts
-        transactionTable.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+        // Custom table header
+        JTableHeader header_ = transactionTable.getTableHeader();
+        header_.setFont(ThemeManager.getBoldFont(12));
+        header_.setBackground(ThemeManager.getTableHeaderBackground());
+        header_.setForeground(ThemeManager.getTableHeaderForeground());
+        header_.setPreferredSize(new Dimension(0, 40));
+        header_.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0,
+                ThemeManager.getPrimaryAccentColor()));
+
+        // Alternating row colors
+        transactionTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                     boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value,
                         isSelected, hasFocus, row, column);
-                String type = table.getValueAt(row, 2).toString();
-                if (type.contains("DEPOSIT") || type.contains("TRANSFER_IN") ||
-                        type.contains("INTEREST") || type.contains("DISBURSEMENT")) {
-                    c.setForeground(ThemeManager.getSuccessColor());
-                } else {
-                    c.setForeground(ThemeManager.getDangerColor());
+
+                if (!isSelected) {
+                    setBackground(row % 2 == 0 ?
+                            ThemeManager.getTableRowEven() : ThemeManager.getTableRowOdd());
                 }
+
+                setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+
+                // Color-code amounts (column 3)
+                if (column == 3) {
+                    String type = table.getValueAt(row, 2).toString();
+                    if (type.contains("DEPOSIT") || type.contains("TRANSFER_IN") ||
+                            type.contains("INTEREST") || type.contains("DISBURSEMENT")) {
+                        setForeground(ThemeManager.getSuccessColor());
+                    } else {
+                        setForeground(ThemeManager.getDangerColor());
+                    }
+                    setFont(ThemeManager.getBoldFont(13));
+                } else if (column == 4) {
+                    setForeground(ThemeManager.getTextMutedColor());
+                } else {
+                    setForeground(ThemeManager.getTextLightColor());
+                }
+
                 return c;
             }
         });
@@ -169,11 +201,10 @@ public class TransactionHistoryPanel extends JPanel {
         summaryCard.setLayout(new BorderLayout());
         summaryCard.setPreferredSize(new Dimension(0, 120));
 
-        // RUBRIC: Jagged array — rows have different lengths
-        String[][] monthlySummary = new String[3][]; // 3 months
+        String[][] monthlySummary = new String[3][];
         monthlySummary[0] = new String[]{"Jan", "Deposits: 3", "Withdrawals: 2", "Transfers: 1"};
-        monthlySummary[1] = new String[]{"Feb", "Deposits: 5", "Withdrawals: 3"};  // 3 columns
-        monthlySummary[2] = new String[]{"Mar", "Deposits: 2"};                    // 2 columns
+        monthlySummary[1] = new String[]{"Feb", "Deposits: 5", "Withdrawals: 3"};
+        monthlySummary[2] = new String[]{"Mar", "Deposits: 2"};
 
         JPanel grid = new JPanel(new GridLayout(3, 1, 5, 5));
         grid.setOpaque(false);
@@ -187,7 +218,7 @@ public class TransactionHistoryPanel extends JPanel {
                 label.setForeground(ThemeManager.getTextMutedColor());
                 if (cell.equals(row[0])) {
                     label.setFont(ThemeManager.getBoldFont(12));
-                    label.setForeground(ThemeManager.getTextLightColor());
+                    label.setForeground(ThemeManager.getPrimaryAccentColor());
                 }
                 rowPanel.add(label);
             }
@@ -228,18 +259,19 @@ public class TransactionHistoryPanel extends JPanel {
                             if (parts.length >= 5) {
                                 allTransactions.add(parts);
                                 tableModel.addRow(new Object[]{
-                                        parts[0],  // ID
-                                        parts.length > 5 ? parts[5] : "",  // Date
-                                        parts[2],  // Type
-                                        parts[3],  // Amount
-                                        parts[4],  // Balance After
-                                        parts.length > 6 ? parts[6] : ""   // Remarks
+                                        parts[0],
+                                        parts.length > 5 ? parts[5] : "",
+                                        parts[2],
+                                        parts[3],
+                                        parts[4],
+                                        parts.length > 6 ? parts[6] : ""
                                 });
                             }
                         }
                     }
 
-                    summaryLabel.setText(AppLanguage.get("history.total", "{count}", String.valueOf(allTransactions.size())));
+                    summaryLabel.setText(AppLanguage.get("history.total", "{count}",
+                            String.valueOf(allTransactions.size())));
                 } catch (Exception e) {
                     NotificationPanel.showError(parentFrame, "Error loading transactions");
                 }
@@ -249,8 +281,6 @@ public class TransactionHistoryPanel extends JPanel {
 
     /**
      * Applies search/type filters to the transaction list.
-     *
-     * RUBRIC: Unit 2 — Lambda/Streams for filtering.
      */
     private void applyFilter() {
         String searchText = searchField.getActualText().trim().toLowerCase();
@@ -258,15 +288,12 @@ public class TransactionHistoryPanel extends JPanel {
 
         tableModel.setRowCount(0);
 
-        // RUBRIC: Using stream + filter with lambda expressions
         allTransactions.stream()
                 .filter(parts -> {
-                    // Type filter
                     if (!selectedType.equals(AppLanguage.get("history.all.types")) &&
                             !parts[2].equalsIgnoreCase(selectedType)) {
                         return false;
                     }
-                    // Search filter (by amount or remarks)
                     if (!searchText.isEmpty()) {
                         boolean matchAmount = parts[3].contains(searchText);
                         boolean matchRemarks = parts.length > 6 &&

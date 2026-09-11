@@ -5,6 +5,7 @@ import com.securebank.server.BankServer;
 import java.io.*;
 import java.net.Socket;
 import java.net.ConnectException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * BankClient — manages the TCP socket connection from the Swing GUI to the BankServer.
@@ -92,8 +93,9 @@ public class BankClient {
             socket = new Socket(host, port);
 
             // Set up I/O streams (Character Streams over the socket's byte streams)
-            out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            // UTF-8 explicitly — must match the server's charset so ₹/Devanagari round-trip
+            out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 
             connected = true;
             System.out.println("[Client] Connected to server at " + host + ":" + port);

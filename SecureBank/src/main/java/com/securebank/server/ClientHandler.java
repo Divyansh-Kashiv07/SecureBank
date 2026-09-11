@@ -9,9 +9,11 @@ import com.securebank.repository.CustomerRepository;
 import com.securebank.transactions.Transaction;
 import com.securebank.transactions.TransactionLogger;
 import com.securebank.utils.IDGenerator;
+import com.securebank.utils.PasswordHasher;
 
 import java.io.*;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,10 +39,16 @@ import java.util.stream.Collectors;
  *   ACCOUNT_INFO|accountNumber     → OK|holderName|type|balance|interestRate
  *   LOAN_APPLY|custId|accNum|amount|tenure|purpose → OK|loanId|emi
  *   LOAN_STATUS|customerId         → OK|loan1;loan2;...
- *   ACCOUNTS|customerId            → OK|acc1;acc2;...
- *   CREATE_ACCOUNT|custId|type|initBalance → OK|accountNumber
- *   INTEREST|accountNumber         → OK|interestAmount
- *   SAVE                           → OK|saved
+ *   ACCOUNTS|customerId            → OK|acc1;acc2;... *   CREATE_ACCOUNT|type|initBalance        → OK|accountNumber (own customer)
+ *   INTEREST|accountNumber → OK|interestAmount
+ *
+ * SECURITY (Phase 3):
+ * - LOGIN is REQUIRED before any other command (per-connection session).
+ * - Every command is authorized against the session customer — a connection
+ *   can only touch accounts and loans it owns (IDOR protection).
+ * - SAVE is a server-side maintenance command and rejected for clients.
+ * - QUIT ends the connection cleanly. Login failures lock the session
+ *   temporarily; PINs are verified against salted PBKDF2 hashes.
  *
  * VIVA NOTE — RUNNABLE vs THREAD:
  * We implement Runnable (not extend Thread) because:
@@ -65,6 +73,12 @@ public class ClientHandler implements Runnable {
 
     /** Transaction logger daemon for async logging */
     private final TransactionLogger transactionLogger;
+
+    /** Per-connection authentication/authorization state (Phase 3 security) */
+    private final Session session = new Session();
+
+    /** SECURITY: maximum accepted request length in characters */
+    private static final int MAX_REQUEST_LENGTH = 256;
 
     /** Reader for incoming client messages */
     private BufferedReader in;
@@ -110,8 +124,9 @@ public class ClientHandler implements Runnable {
         try {
             // Set up I/O streams on the socket
             // RUBRIC: Unit 4 — Character streams over socket for text-based protocol
-            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-            out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()), true);
+            // UTF-8 explicitly: the platform default (windows-1252) cannot encode ₹/Devanagari
+            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream(), StandardCharsets.UTF_8));
+            out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream(), StandardCharsets.UTF_8), true);
             // 'true' enables auto-flush — every println() immediately sends data
 
             // Read and process commands until client disconnects
@@ -120,13 +135,27 @@ public class ClientHandler implements Runnable {
                 requestLine = requestLine.trim();
                 if (requestLine.isEmpty()) continue;
 
-                System.out.println("[Handler " + clientAddress + "] Request: " + requestLine);
+                // SECURITY: cap request size before parsing (memory/CPU protection)
+                if (requestLine.length() > MAX_REQUEST_LENGTH) {
+                    System.out.println("[Handler " + clientAddress
+                            + "] REJECTED oversized request (" + requestLine.length() + " chars)");
+                    out.println("ERROR|Request too long");
+                    continue;
+                }
+
+                // SECURITY: never log PINs — LOGIN lines are masked
+                boolean isLogin = requestLine.regionMatches(true, 0, "LOGIN|", 0, 6);
+                System.out.println("[Handler " + clientAddress + "] Request: "
+                        + (isLogin ? "LOGIN|customerId|****" : requestLine));
 
                 // Process the command and get the response
                 String response = processCommand(requestLine);
 
                 // Send response back to client
                 out.println(response);
+                if ("BYE".equals(response)) {
+                    break;
+                }
                 System.out.println("[Handler " + clientAddress + "] Response: " + response);
             }
 
@@ -151,11 +180,18 @@ public class ClientHandler implements Runnable {
         String[] parts = request.split("\\|", -1);
         String command = parts[0].toUpperCase();
 
+        // SECURITY: LOGIN and QUIT are the only commands allowed before login
+        if (!session.isAuthenticated() && !"LOGIN".equals(command) && !"QUIT".equals(command)) {
+            return "ERROR|Authentication required. LOGIN first.";
+        }
+
         // RUBRIC: Unit 1 — Control statements (switch)
         try {
             switch (command) {
                 case "LOGIN":
                     return handleLogin(parts);
+                case "QUIT":
+                    return "BYE";
                 case "BALANCE":
                     return handleBalance(parts);
                 case "DEPOSIT":
@@ -179,13 +215,16 @@ public class ClientHandler implements Runnable {
                 case "INTEREST":
                     return handleInterest(parts);
                 case "SAVE":
-                    return handleSave();
+                    // SECURITY: server-side maintenance command — never exposed to clients
+                    return "ERROR|Not authorized";
                 default:
                     return "ERROR|Unknown command: " + command;
             }
         } catch (Exception e) {
-            // Catch-all for any unexpected errors
-            return "ERROR|Internal server error: " + e.getMessage();
+            // SECURITY: log details server-side; return a generic message so
+            // internal errors never leak implementation details to clients
+            System.err.println("[Handler] Internal error: " + e);
+            return "ERROR|Internal server error";
         }
     }
 
@@ -200,6 +239,16 @@ public class ClientHandler implements Runnable {
     private String handleLogin(String[] parts) {
         if (parts.length < 3) return "ERROR|Usage: LOGIN|customerId|pin";
 
+        if (session.isAuthenticated()) {
+            return "ERROR|Already logged in. Disconnect to switch customers.";
+        }
+
+        // SECURITY: temporary lockout after repeated failures slows online guessing
+        if (session.isLockedOut()) {
+            return "ERROR|Too many failed attempts. Try again in "
+                    + session.getLockoutRemainingSeconds() + " seconds.";
+        }
+
         String customerId = parts[1];
         String pin = parts[2];
 
@@ -207,28 +256,43 @@ public class ClientHandler implements Runnable {
         try {
             Customer customer = customerRepository.getCustomer(customerId);
 
+            // SECURITY: one generic message for unknown user AND wrong PIN so an
+            // attacker cannot enumerate valid customer IDs
             if (customer == null) {
-                // RUBRIC: throw custom exception
                 throw new AccountNotFoundException(customerId);
             }
 
-            if (!customer.validatePin(pin)) {
-                // RUBRIC: throw custom exception
-                throw new InvalidPinException(customerId);
+            if (!customer.isActive()) {
+                session.recordFailedLogin();
+                return "ERROR|Invalid customer ID or PIN.";
             }
 
-            if (!customer.isActive()) {
-                return "ERROR|Account is deactivated. Contact the bank.";
+            if (!PasswordHasher.verify(pin, customer.getPin())) {
+                boolean locked = session.recordFailedLogin();
+                if (locked) {
+                    return "ERROR|Too many failed attempts. Locked for "
+                            + session.getLockoutRemainingSeconds() + " seconds.";
+                }
+                return "ERROR|Invalid customer ID or PIN.";
             }
+
+            // SECURITY: transparently upgrade legacy plaintext PIN records to
+            // salted PBKDF2 hashes on first successful login
+            if (!PasswordHasher.isHashed(customer.getPin())) {
+                customer.setPin(PasswordHasher.hash(pin));
+                safeSave();
+            }
+
+            session.authenticate(customerId, customer.getName());
 
             // Login successful — return customer name and their account numbers
             String accountNumbers = String.join(",", customer.getAccountNumbers());
             return "OK|" + customer.getName() + "|" + accountNumbers;
 
         } catch (AccountNotFoundException e) {
-            return "ERROR|" + e.getMessage();
-        } catch (InvalidPinException e) {
-            return "ERROR|Invalid PIN. Please try again.";
+            // Same generic message as a wrong PIN — no user enumeration
+            session.recordFailedLogin();
+            return "ERROR|Invalid customer ID or PIN.";
         }
     }
 
@@ -238,11 +302,10 @@ public class ClientHandler implements Runnable {
     private String handleBalance(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: BALANCE|accountNumber";
 
-        Account account = accountRepository.getAccount(parts[1]);
-        if (account == null) {
-            return "ERROR|Account not found: " + parts[1];
-        }
+        String authError = requireOwnedAccount(parts[1]);
+        if (authError != null) return authError;
 
+        Account account = accountRepository.getAccount(parts[1]);
         return "OK|" + String.format("%.2f", account.getBalance());
     }
 
@@ -257,6 +320,10 @@ public class ClientHandler implements Runnable {
         if (parts.length < 3) return "ERROR|Usage: DEPOSIT|accountNumber|amount[|remarks]";
 
         String accountNumber = parts[1];
+
+        String authError = requireOwnedAccount(accountNumber);
+        if (authError != null) return authError;
+
         double amount;
 
         try {
@@ -266,18 +333,19 @@ public class ClientHandler implements Runnable {
         }
 
         Account account = accountRepository.getAccount(accountNumber);
-        if (account == null) {
-            return "ERROR|Account not found: " + accountNumber;
-        }
 
         // This call is SYNCHRONIZED inside Account.deposit()
         String remarks = (parts.length > 3) ? parts[3] : "";
         double newBalance;
 
-        if (remarks.isEmpty()) {
-            newBalance = account.deposit(amount);           // Overloaded version 1
-        } else {
-            newBalance = account.deposit(amount, remarks);  // Overloaded version 2
+        try {
+            if (remarks.isEmpty()) {
+                newBalance = account.deposit(amount);           // Overloaded version 1
+            } else {
+                newBalance = account.deposit(amount, remarks);  // Overloaded version 2
+            }
+        } catch (AccountInactiveException e) {
+            return "ERROR|" + e.getMessage();
         }
 
         // Log the transaction asynchronously via the daemon thread
@@ -287,7 +355,7 @@ public class ClientHandler implements Runnable {
             transactionLogger.log(lastTxn);
 
             // Auto-save after each transaction
-            accountRepository.saveToFile();
+            safeSave();
 
             return "OK|" + String.format("%.2f", newBalance) + "|" + lastTxn.getTransactionId();
         }
@@ -304,6 +372,10 @@ public class ClientHandler implements Runnable {
         if (parts.length < 3) return "ERROR|Usage: WITHDRAW|accountNumber|amount";
 
         String accountNumber = parts[1];
+
+        String authError = requireOwnedAccount(accountNumber);
+        if (authError != null) return authError;
+
         double amount;
 
         try {
@@ -313,9 +385,6 @@ public class ClientHandler implements Runnable {
         }
 
         Account account = accountRepository.getAccount(accountNumber);
-        if (account == null) {
-            return "ERROR|Account not found: " + accountNumber;
-        }
 
         // RUBRIC: try-catch with MULTIPLE catch blocks for different custom exceptions
         try {
@@ -328,15 +397,18 @@ public class ClientHandler implements Runnable {
             transactionLogger.log(lastTxn);
 
             // Auto-save
-            accountRepository.saveToFile();
+            safeSave();
 
             return "OK|" + String.format("%.2f", newBalance) + "|" + lastTxn.getTransactionId();
 
         } catch (InsufficientBalanceException e) {
-            // RUBRIC: Catch block 1 — insufficient balance
+            // RUBRIC: Catch block 1 — insufficient balance (incl. minimum-balance rule)
             return "ERROR|" + e.getMessage();
         } catch (DailyLimitExceededException e) {
             // RUBRIC: Catch block 2 — daily limit exceeded
+            return "ERROR|" + e.getMessage();
+        } catch (AccountInactiveException e) {
+            // RUBRIC: Catch block 3 — frozen account
             return "ERROR|" + e.getMessage();
         }
     }
@@ -349,6 +421,12 @@ public class ClientHandler implements Runnable {
 
         String fromAcc = parts[1];
         String toAcc = parts[2];
+
+        // SECURITY: the SOURCE must belong to the session customer. Transferring
+        // TO an existing account is a normal customer operation.
+        String authError = requireOwnedAccount(fromAcc);
+        if (authError != null) return authError;
+
         double amount;
 
         try {
@@ -378,7 +456,7 @@ public class ClientHandler implements Runnable {
             }
 
             // Auto-save
-            accountRepository.saveToFile();
+            safeSave();
 
             return "OK|" + String.format("%.2f", source.getBalance()) + "|" +
                     (sourceHistory.isEmpty() ? "N/A" :
@@ -387,6 +465,8 @@ public class ClientHandler implements Runnable {
         } catch (InsufficientBalanceException e) {
             return "ERROR|" + e.getMessage();
         } catch (DailyLimitExceededException e) {
+            return "ERROR|" + e.getMessage();
+        } catch (AccountInactiveException e) {
             return "ERROR|" + e.getMessage();
         }
     }
@@ -398,10 +478,10 @@ public class ClientHandler implements Runnable {
     private String handleHistory(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: HISTORY|accountNumber";
 
+        String authError = requireOwnedAccount(parts[1]);
+        if (authError != null) return authError;
+
         Account account = accountRepository.getAccount(parts[1]);
-        if (account == null) {
-            return "ERROR|Account not found: " + parts[1];
-        }
 
         List<Transaction> history = account.getTransactionHistory();
         if (history.isEmpty()) {
@@ -422,10 +502,10 @@ public class ClientHandler implements Runnable {
     private String handleAccountInfo(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: ACCOUNT_INFO|accountNumber";
 
+        String authError = requireOwnedAccount(parts[1]);
+        if (authError != null) return authError;
+
         Account account = accountRepository.getAccount(parts[1]);
-        if (account == null) {
-            return "ERROR|Account not found: " + parts[1];
-        }
 
         StringBuilder info = new StringBuilder();
         info.append(account.getHolderName()).append("|");
@@ -450,8 +530,18 @@ public class ClientHandler implements Runnable {
     private String handleLoanApply(String[] parts) {
         if (parts.length < 6) return "ERROR|Usage: LOAN_APPLY|custId|accNum|amount|tenure|purpose";
 
-        String customerId = parts[1];
+        // SECURITY: loans can only be applied for by the session customer themself,
+        // and the linked account must belong to them
+        String customerId = session.getCustomerId();
+        if (!parts[1].equals(customerId)) {
+            return "ERROR|Not authorized to apply for a loan on behalf of another customer";
+        }
+
         String accountNumber = parts[2];
+
+        String authError = requireOwnedAccount(accountNumber);
+        if (authError != null) return authError;
+
         double amount;
         int tenure;
 
@@ -476,9 +566,8 @@ public class ClientHandler implements Runnable {
         loanProcessor.approveLoan(loan.getLoanId());
         if (account != null) {
             loanProcessor.disburseLoan(loan.getLoanId(), account);
-            accountRepository.saveToFile();
         }
-        loanProcessor.saveToFile();
+        safeSave();
 
         return "OK|" + loan.getLoanId() + "|" + String.format("%.2f", loan.getEmi());
     }
@@ -488,6 +577,11 @@ public class ClientHandler implements Runnable {
      */
     private String handleLoanStatus(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: LOAN_STATUS|customerId";
+
+        // SECURITY: only the session customer's own loans are visible
+        if (!parts[1].equals(session.getCustomerId())) {
+            return "ERROR|Not authorized to view another customer's loans";
+        }
 
         List<Loan> loans = loanProcessor.getLoansByCustomer(parts[1]);
         if (loans.isEmpty()) {
@@ -506,6 +600,11 @@ public class ClientHandler implements Runnable {
      */
     private String handleGetAccounts(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: ACCOUNTS|customerId";
+
+        // SECURITY: a connection can only list its own accounts
+        if (!parts[1].equals(session.getCustomerId())) {
+            return "ERROR|Not authorized to view another customer's accounts";
+        }
 
         Customer customer = customerRepository.getCustomer(parts[1]);
         if (customer == null) {
@@ -532,14 +631,18 @@ public class ClientHandler implements Runnable {
      * Handles CREATE_ACCOUNT|customerId|type|initialBalance
      */
     private String handleCreateAccount(String[] parts) {
-        if (parts.length < 4) return "ERROR|Usage: CREATE_ACCOUNT|custId|type|initBalance";
+        // SECURITY: accounts can only be created for the session customer —
+        // any customerId parameter is ignored. Accepts both the legacy form
+        // (CREATE_ACCOUNT|custId|type|balance) and the session-bound form
+        // (CREATE_ACCOUNT|type|balance).
+        if (parts.length < 3) return "ERROR|Usage: CREATE_ACCOUNT|type|initBalance";
 
-        String customerId = parts[1];
-        String type = parts[2];
+        String customerId = session.getCustomerId();
+        String type = parts[parts.length - 2];
         double initialBalance;
 
         try {
-            initialBalance = Double.parseDouble(parts[3]);
+            initialBalance = Double.parseDouble(parts[parts.length - 1]);
         } catch (NumberFormatException e) {
             return "ERROR|Invalid initial balance";
         }
@@ -566,8 +669,7 @@ public class ClientHandler implements Runnable {
         customer.addAccount(accountNumber);
 
         // Save both repositories
-        accountRepository.saveToFile();
-        customerRepository.saveToFile();
+        safeSave();
 
         return "OK|" + accountNumber;
     }
@@ -578,10 +680,10 @@ public class ClientHandler implements Runnable {
     private String handleInterest(String[] parts) {
         if (parts.length < 2) return "ERROR|Usage: INTEREST|accountNumber";
 
+        String authError = requireOwnedAccount(parts[1]);
+        if (authError != null) return authError;
+
         Account account = accountRepository.getAccount(parts[1]);
-        if (account == null) {
-            return "ERROR|Account not found: " + parts[1];
-        }
 
         double interest = account.calculateInterest();
         return "OK|" + String.format("%.2f", interest);
@@ -590,11 +692,52 @@ public class ClientHandler implements Runnable {
     /**
      * Handles SAVE — forces an immediate save of all data.
      */
+    /**
+     * SECURITY: SAVE used to be callable by any client to force disk writes
+     * (an integrity and denial-of-service vector). It is now server-side only
+     * and rejected for client connections.
+     */
     private String handleSave() {
-        accountRepository.saveToFile();
-        customerRepository.saveToFile();
-        loanProcessor.saveToFile();
-        return "OK|All data saved successfully";
+        return "ERROR|Not authorized";
+    }
+
+    /**
+     * RELIABILITY: persists all repositories, reporting failures loudly.
+     *
+     * The in-memory operation has ALREADY succeeded and stays authoritative;
+     * returning an error here would make the client retry an operation that
+     * did happen (double-crediting money). The atomic-save design in
+     * FileIOHelper guarantees a failed write leaves the previous files intact.
+     */
+    private void safeSave() {
+        try {
+            accountRepository.saveToFile();
+            customerRepository.saveToFile();
+            loanProcessor.saveToFile();
+        } catch (IOException e) {
+            System.err.println("[Handler] CRITICAL: data persistence failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * SECURITY (IDOR protection): verifies that the requested account exists AND
+     * belongs to the authenticated session customer. Returns an error response
+     * string, or null if the account is owned and may be accessed.
+     */
+    private String requireOwnedAccount(String accountNumber) {
+        if (!session.isAuthenticated()) {
+            return "ERROR|Authentication required";
+        }
+        Account account = accountRepository.getAccount(accountNumber);
+        if (account == null) {
+            return "ERROR|Account not found: " + accountNumber;
+        }
+        if (!account.getCustomerId().equals(session.getCustomerId())) {
+            System.out.println("[Handler] AUTHORIZATION DENIED: customer "
+                    + session.getCustomerId() + " requested account " + accountNumber);
+            return "ERROR|Not authorized to access this account";
+        }
+        return null;
     }
 
     /**

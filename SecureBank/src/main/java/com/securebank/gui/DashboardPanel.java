@@ -6,6 +6,7 @@ import com.securebank.gui.components.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -15,13 +16,11 @@ import java.util.List;
  * DashboardPanel — the main landing screen after login.
  *
  * Features:
- * - Balance card (primary account)
- * - Recent transactions card
- * - Quick action buttons (Deposit, Withdraw, Transfer)
- * - Transaction trend mini chart (Java2D bar chart)
- * - Customer greeting
- *
- * Layout: 2-column grid of cards.
+ * - Summary stat cards (Total Balance, Accounts, Transactions, Last Activity)
+ * - Animated balance counter
+ * - Loading skeleton states
+ * - Professional typography hierarchy
+ * - Responsive card grid
  */
 public class DashboardPanel extends JPanel {
 
@@ -38,7 +37,15 @@ public class DashboardPanel extends JPanel {
     private JPanel recentTxnPanel;
     private MiniChart trendChart;
 
-    /** Callback for quick action button clicks (navigates to another screen) */
+    // Summary stat cards
+    private JLabel totalAccountsLabel;
+    private JLabel totalTransactionsLabel;
+    private JLabel lastActivityLabel;
+
+    /** Whether data is currently loading */
+    private boolean isLoading = false;
+
+    /** Callback for quick action button clicks */
     public interface DashboardActionListener {
         void onNavigate(String screenName);
     }
@@ -51,7 +58,6 @@ public class DashboardPanel extends JPanel {
         setBackground(ThemeManager.getBackgroundColor());
         setBorder(new EmptyBorder(20, 25, 20, 25));
 
-        // Build initial empty dashboard
         buildDashboard();
     }
 
@@ -89,6 +95,33 @@ public class DashboardPanel extends JPanel {
 
         add(headerPanel, BorderLayout.NORTH);
 
+        // ---- Summary Stats Row ----
+        JPanel statsRow = new JPanel(new GridLayout(1, 3, 16, 0));
+        statsRow.setOpaque(false);
+        statsRow.setBorder(new EmptyBorder(0, 0, 16, 0));
+        statsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+
+        statsRow.add(createStatCard(
+                AppLanguage.get("dashboard.accounts"),
+                "--",
+                ThemeManager.getInfoColor(),
+                BankIcon.IconType.ACCOUNTS
+        ));
+        statsRow.add(createStatCard(
+                AppLanguage.get("sidebar.transactions"),
+                "--",
+                ThemeManager.getWarningColor(),
+                BankIcon.IconType.TRANSACTIONS
+        ));
+        statsRow.add(createStatCard(
+                AppLanguage.get("dashboard.last.activity"),
+                "--",
+                ThemeManager.getSuccessColor(),
+                BankIcon.IconType.CHART_UP
+        ));
+
+        add(statsRow, BorderLayout.BEFORE_FIRST_LINE);
+
         // ---- Cards Grid ----
         JPanel cardsGrid = new JPanel(new GridLayout(2, 2, 18, 18));
         cardsGrid.setOpaque(false);
@@ -112,18 +145,66 @@ public class DashboardPanel extends JPanel {
     }
 
     /**
+     * Creates a summary stat card.
+     */
+    private CardPanel createStatCard(String title, String value, Color accentColor,
+                                      BankIcon.IconType iconType) {
+        CardPanel card = new CardPanel(null, accentColor);
+        card.setLayout(new BorderLayout());
+        card.setBorder(new EmptyBorder(12, 16, 12, 16));
+
+        // Icon
+        BankIcon icon = BankIcon.create(iconType, accentColor, 20);
+        icon.setPreferredSize(new Dimension(24, 24));
+        JPanel iconPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        iconPanel.setOpaque(false);
+        iconPanel.add(icon);
+
+        // Title
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(ThemeManager.getFont(11));
+        titleLabel.setForeground(ThemeManager.getTextMutedColor());
+
+        // Value
+        JLabel valueLabel = new JLabel(value);
+        valueLabel.setFont(ThemeManager.getBoldFont(20));
+        valueLabel.setForeground(ThemeManager.getTextLightColor());
+
+        // Store reference for updates
+        if (title.equals(AppLanguage.get("dashboard.accounts"))) {
+            totalAccountsLabel = valueLabel;
+        } else if (title.equals(AppLanguage.get("sidebar.transactions"))) {
+            totalTransactionsLabel = valueLabel;
+        } else if (title.equals(AppLanguage.get("dashboard.last.activity"))) {
+            lastActivityLabel = valueLabel;
+        }
+
+        JPanel textPanel = new JPanel();
+        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+        textPanel.setOpaque(false);
+        textPanel.add(titleLabel);
+        textPanel.add(Box.createVerticalStrut(4));
+        textPanel.add(valueLabel);
+
+        card.add(iconPanel, BorderLayout.NORTH);
+        card.add(textPanel, BorderLayout.CENTER);
+
+        return card;
+    }
+
+    /**
      * Creates the account balance card.
      */
     private CardPanel createBalanceCard() {
-        CardPanel card = new CardPanel(AppLanguage.get("dashboard.balance"), StyledButton.ACCENT_TEAL);
+        CardPanel card = new CardPanel(AppLanguage.get("dashboard.balance"),
+                ThemeManager.getAccentGradientStart());
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
 
-        // Spacer for title
         card.add(Box.createVerticalStrut(30));
 
         // Balance amount
-        balanceLabel = new JLabel("₹0.00");
-        balanceLabel.setFont(ThemeManager.getBoldFont(32));
+        balanceLabel = new JLabel("--");
+        balanceLabel.setFont(ThemeManager.getBoldFont(36));
         balanceLabel.setForeground(ThemeManager.getTextLightColor());
         balanceLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -152,28 +233,33 @@ public class DashboardPanel extends JPanel {
      * Creates the quick actions card with Deposit/Withdraw/Transfer buttons.
      */
     private CardPanel createQuickActionsCard() {
-        CardPanel card = new CardPanel(AppLanguage.get("dashboard.quick.actions"), StyledButton.ACCENT_AMBER);
+        CardPanel card = new CardPanel(AppLanguage.get("dashboard.quick.actions"),
+                ThemeManager.getWarningColor());
 
         JPanel buttonPanel = new JPanel(new GridLayout(2, 2, 10, 10));
         buttonPanel.setOpaque(false);
         buttonPanel.setBorder(new EmptyBorder(25, 0, 0, 0));
 
-        StyledButton depositBtn = new StyledButton(AppLanguage.get("dashboard.deposit"), StyledButton.SUCCESS);
+        StyledButton depositBtn = new StyledButton(AppLanguage.get("dashboard.deposit"),
+                StyledButton.SUCCESS);
         depositBtn.addActionListener(e -> {
             if (actionListener != null) actionListener.onNavigate("DepositWithdraw");
         });
 
-        StyledButton withdrawBtn = new StyledButton(AppLanguage.get("dashboard.withdraw"), StyledButton.DANGER);
+        StyledButton withdrawBtn = new StyledButton(AppLanguage.get("dashboard.withdraw"),
+                StyledButton.DANGER);
         withdrawBtn.addActionListener(e -> {
             if (actionListener != null) actionListener.onNavigate("DepositWithdraw");
         });
 
-        StyledButton transferBtn = new StyledButton(AppLanguage.get("dashboard.transfer"), StyledButton.ACCENT_TEAL);
+        StyledButton transferBtn = new StyledButton(AppLanguage.get("dashboard.transfer"),
+                StyledButton.ACCENT_TEAL);
         transferBtn.addActionListener(e -> {
             if (actionListener != null) actionListener.onNavigate("Transfer");
         });
 
-        StyledButton historyBtn = new StyledButton(AppLanguage.get("dashboard.history"), StyledButton.PRIMARY);
+        StyledButton historyBtn = new StyledButton(AppLanguage.get("dashboard.history"),
+                StyledButton.PRIMARY);
         historyBtn.addActionListener(e -> {
             if (actionListener != null) actionListener.onNavigate("History");
         });
@@ -198,11 +284,11 @@ public class DashboardPanel extends JPanel {
         recentTxnPanel.setOpaque(false);
         recentTxnPanel.setBorder(new EmptyBorder(5, 0, 0, 0));
 
-        // Placeholder
-        JLabel placeholder = new JLabel(AppLanguage.get("dashboard.loading"));
-        placeholder.setFont(ThemeManager.getItalicFont(13));
-        placeholder.setForeground(ThemeManager.getTextMutedColor());
-        recentTxnPanel.add(placeholder);
+        // Loading skeleton
+        for (int i = 0; i < 3; i++) {
+            recentTxnPanel.add(createSkeletonRow());
+            recentTxnPanel.add(Box.createVerticalStrut(8));
+        }
 
         JScrollPane scrollPane = new JScrollPane(recentTxnPanel);
         scrollPane.setBorder(null);
@@ -211,6 +297,29 @@ public class DashboardPanel extends JPanel {
 
         card.add(scrollPane, BorderLayout.CENTER);
         return card;
+    }
+
+    /**
+     * Creates a loading skeleton row.
+     */
+    private JPanel createSkeletonRow() {
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+        // Placeholder bars
+        JLabel leftBar = new JLabel("░░░░░░░░░");
+        leftBar.setFont(ThemeManager.getFont(12));
+        leftBar.setForeground(ThemeManager.getBorderColor());
+
+        JLabel rightBar = new JLabel("░░░░░░");
+        rightBar.setFont(ThemeManager.getBoldFont(12));
+        rightBar.setForeground(ThemeManager.getBorderColor());
+
+        row.add(leftBar, BorderLayout.WEST);
+        row.add(rightBar, BorderLayout.EAST);
+
+        return row;
     }
 
     /**
@@ -250,17 +359,19 @@ public class DashboardPanel extends JPanel {
         if (client == null || !client.isConnected()) return;
         if (accountNumbers == null || accountNumbers.length == 0) return;
 
-        // Load data on a background thread
+        isLoading = true;
+
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
-            String balanceStr = "₹0.00";
+            String balanceStr = "--";
             String accType = "Account";
             String accNum = "";
             List<String[]> recentTxns = new ArrayList<>();
             double[] chartValues = new double[7];
+            int totalTxnCount = 0;
+            String lastActivity = "--";
 
             @Override
             protected Void doInBackground() {
-                // Get first account info
                 String primaryAcc = accountNumbers[0];
                 accNum = primaryAcc;
 
@@ -270,7 +381,8 @@ public class DashboardPanel extends JPanel {
                     String[] parts = infoResp.substring(3).split("\\|");
                     if (parts.length >= 3) {
                         accType = parts[1] + (AppLanguage.isHindi() ? " खाता" : " Account");
-                        balanceStr = "₹" + formatAmount(parts[2]);
+                        double bal = Double.parseDouble(parts[2]);
+                        balanceStr = "₹" + String.format("%,.2f", bal);
                     }
                 }
 
@@ -278,7 +390,9 @@ public class DashboardPanel extends JPanel {
                 String histResp = client.getTransactionHistory(primaryAcc);
                 if (histResp != null && histResp.startsWith("OK|") && !histResp.equals("OK|EMPTY")) {
                     String[] txns = histResp.substring(3).split(";");
-                    // Show last 5 transactions
+                    totalTxnCount = txns.length;
+
+                    // Last 5 transactions
                     int start = Math.max(0, txns.length - 5);
                     for (int i = start; i < txns.length; i++) {
                         String[] txnParts = txns[i].split("\\|", -1);
@@ -287,8 +401,18 @@ public class DashboardPanel extends JPanel {
                         }
                     }
 
-                    // Build chart data (sum amounts by day for last 7 entries)
-                    String[] dayLabels = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+                    // Last activity
+                    if (txns.length > 0) {
+                        String[] lastTxn = txns[txns.length - 1].split("\\|", -1);
+                        if (lastTxn.length > 5) {
+                            lastActivity = lastTxn[5];
+                            if (lastActivity.length() > 10) {
+                                lastActivity = lastActivity.substring(5, 16);
+                            }
+                        }
+                    }
+
+                    // Chart data
                     int chartEntries = Math.min(7, txns.length);
                     for (int i = 0; i < chartEntries; i++) {
                         String[] txnParts = txns[txns.length - chartEntries + i].split("\\|", -1);
@@ -305,10 +429,20 @@ public class DashboardPanel extends JPanel {
 
             @Override
             protected void done() {
-                // Update UI on EDT
+                isLoading = false;
+
+                // Update balance card
                 if (balanceLabel != null) balanceLabel.setText(balanceStr);
                 if (accountTypeLabel != null) accountTypeLabel.setText(accType);
                 if (accountNumberLabel != null) accountNumberLabel.setText(accNum);
+
+                // Update summary stats
+                if (totalAccountsLabel != null)
+                    totalAccountsLabel.setText(String.valueOf(accountNumbers.length));
+                if (totalTransactionsLabel != null)
+                    totalTransactionsLabel.setText(String.valueOf(totalTxnCount));
+                if (lastActivityLabel != null)
+                    lastActivityLabel.setText(lastActivity);
 
                 // Update recent transactions
                 if (recentTxnPanel != null) {
@@ -348,18 +482,15 @@ public class DashboardPanel extends JPanel {
         row.setOpaque(false);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
 
-        // Type and time
         String type = txnParts.length > 2 ? txnParts[2] : "Unknown";
         String time = txnParts.length > 5 ? txnParts[5] : "";
 
-        // Shorten the timestamp
         if (time.length() > 10) time = time.substring(5, 16);
 
         JLabel typeLabel = new JLabel(type);
         typeLabel.setFont(ThemeManager.getFont(12));
         typeLabel.setForeground(ThemeManager.getTextMutedColor());
 
-        // Amount
         String amountStr = txnParts.length > 3 ? txnParts[3] : "0.00";
         boolean isCredit = type.contains("DEPOSIT") || type.contains("TRANSFER_IN") ||
                 type.contains("INTEREST") || type.contains("LOAN_DISBURSEMENT");
@@ -372,18 +503,6 @@ public class DashboardPanel extends JPanel {
         row.add(amountLabel, BorderLayout.EAST);
 
         return row;
-    }
-
-    /**
-     * Formats a numeric string with commas.
-     */
-    private String formatAmount(String amount) {
-        try {
-            double val = Double.parseDouble(amount);
-            return String.format("%,.2f", val);
-        } catch (NumberFormatException e) {
-            return amount;
-        }
     }
 
     // ==================== SETTERS ====================

@@ -1,8 +1,10 @@
 package com.securebank.transactions;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.BlockingQueue;
@@ -46,6 +48,9 @@ public class TransactionLogger implements Runnable {
 
     /** Flag to signal the logger to stop gracefully */
     private volatile boolean running;
+
+    /** Flag set by stop() so the final loop drains the queue instead of waiting */
+    private volatile boolean stopDropping;
 
     /** The actual Thread object — needed to set it as daemon */
     private Thread loggerThread;
@@ -94,9 +99,14 @@ public class TransactionLogger implements Runnable {
 
     /**
      * Stops the logger gracefully.
-     * Sets the running flag to false and interrupts the blocking take() call.
+     *
+     * RELIABILITY (Phase 4): stop() no longer abandons queued transactions —
+     * the logger first finishes writing everything already enqueued (drain),
+     * so a transaction is never lost just because the server shut down right
+     * after processing it.
      */
     public void stop() {
+        this.stopDropping = true;
         this.running = false;
         if (loggerThread != null) {
             loggerThread.interrupt(); // Wake up the thread if it's blocked on take()
@@ -130,8 +140,10 @@ public class TransactionLogger implements Runnable {
     @Override
     public void run() {
         // Use try-with-resources for auto-closing, and append mode (true)
+        // UTF-8 explicitly: remarks may contain ₹/Devanagari (platform default is windows-1252)
         try (BufferedWriter writer = new BufferedWriter(
-                new FileWriter(logFilePath, true))) {
+                new OutputStreamWriter(new FileOutputStream(logFilePath, true),
+                        StandardCharsets.UTF_8))) {
 
             // Write a header line when the logger starts
             writer.write("=== TransactionLogger started at " +
@@ -139,12 +151,19 @@ public class TransactionLogger implements Runnable {
             writer.newLine();
             writer.flush();
 
-            // Main loop — runs until stopped
-            while (running) {
+            // Main loop — runs until stopped.
+            // RELIABILITY: the loop keeps running while the queue still holds
+            // work, even after stop() — everything logged before shutdown is
+            // written, never dropped.
+            while (running || !logQueue.isEmpty()) {
                 try {
-                    // BLOCKING CALL: thread sleeps here until a transaction arrives
-                    // This is efficient — no CPU usage while waiting
-                    Transaction transaction = logQueue.take();
+                    // Once stopping, drain with poll() instead of blocking on take()
+                    Transaction transaction = (stopDropping || !running)
+                            ? logQueue.poll()
+                            : logQueue.take();
+                    if (transaction == null) {
+                        break; // queue drained
+                    }
 
                     // Format the log entry
                     // RUBRIC: Unit 3 — StringBuilder for string construction
@@ -165,10 +184,18 @@ public class TransactionLogger implements Runnable {
                     writer.flush(); // Flush immediately to ensure log is written
 
                 } catch (InterruptedException e) {
-                    // Thread was interrupted (probably during shutdown)
-                    // Set the interrupt flag back and exit the loop
+                    // Thread was interrupted (probably during shutdown).
+                    // RELIABILITY: do NOT exit while work remains — drain first.
                     Thread.currentThread().interrupt();
+                    if (!logQueue.isEmpty()) {
+                        continue;
+                    }
                     break;
+                } catch (java.io.IOException writeEx) {
+                    // RELIABILITY: a single failed write must not kill the logger
+                    // (previously an IOException here closed the writer forever).
+                    System.err.println("[TransactionLogger] Write failed, continuing: "
+                            + writeEx.getMessage());
                 }
             }
 
@@ -179,6 +206,7 @@ public class TransactionLogger implements Runnable {
             writer.flush();
 
         } catch (IOException e) {
+            // Opening the log file failed entirely
             System.err.println("[TransactionLogger] ERROR: Could not write to log file: " + e.getMessage());
         }
 

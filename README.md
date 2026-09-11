@@ -255,9 +255,11 @@ package.bat
 
 ### Demo Credentials (auto-seeded on first run)
 
+> These are seeded demo accounts for local evaluation only — never reuse PINs like these in any real deployment. PINs are stored as salted PBKDF2 hashes (see `PinHasher`), never in plaintext.
+
 | Customer ID | Name | PIN | Accounts |
 |------------|------|-----|----------|
-| CUSTOMER-1 | Deepanshu Kumar | 1234 | ACC-001001 (Savings ₹25,000), ACC-001002 (Current ₹50,000) |
+| CUSTOMER-1 | Divyansh Kashiv | 1234 | ACC-001001 (Savings ₹25,000), ACC-001002 (Current ₹50,000) |
 | CUSTOMER-2 | Priya Sharma | 5678 | ACC-001003 (Savings ₹15,000) |
 | CUSTOMER-3 | Rahul Verma | 9012 | ACC-001004 (Savings ₹35,000) |
 
@@ -498,7 +500,7 @@ To quickly evaluate the software during the viva, please follow these steps to l
 
 | Customer ID | PIN  | Owner Name       | Notes                                      |
 |-------------|------|------------------|--------------------------------------------|
-| `CUSTOMER-1`| `1234` | Deepanshu Kumar | Has both a Savings and a Current account.  |
+| `CUSTOMER-1`| `1234` | Divyansh Kashiv | Has both a Savings and a Current account.  |
 | `CUSTOMER-2`| `5678` | Priya Sharma    | Great for testing fund transfers.          |
 | `CUSTOMER-3`| `9012` | Rahul Verma     | Test loan applications with this account.  |
 

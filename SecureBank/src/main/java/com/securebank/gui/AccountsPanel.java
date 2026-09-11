@@ -9,6 +9,11 @@ import java.awt.*;
 
 /**
  * AccountsPanel — displays account details and interest calculation.
+ *
+ * Features:
+ * - Polished account cards with gradient accents
+ * - Interest calculation display
+ * - Professional typography
  */
 public class AccountsPanel extends JPanel {
 
@@ -17,8 +22,6 @@ public class AccountsPanel extends JPanel {
     private String customerId;
     private String[] accountNumbers;
     private JPanel accountCardsPanel;
-
-
 
     public AccountsPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
@@ -42,10 +45,11 @@ public class AccountsPanel extends JPanel {
         accountCardsPanel.setLayout(new BoxLayout(accountCardsPanel, BoxLayout.Y_AXIS));
         accountCardsPanel.setOpaque(false);
 
-        JLabel placeholder = new JLabel(AppLanguage.get("accounts.loading"));
-        placeholder.setFont(ThemeManager.getItalicFont(14));
-        placeholder.setForeground(ThemeManager.getTextMutedColor());
-        accountCardsPanel.add(placeholder);
+        // Loading skeletons
+        for (int i = 0; i < 2; i++) {
+            accountCardsPanel.add(createSkeletonCard());
+            accountCardsPanel.add(Box.createVerticalStrut(15));
+        }
 
         JScrollPane scrollPane = new JScrollPane(accountCardsPanel);
         scrollPane.setBorder(null);
@@ -56,6 +60,29 @@ public class AccountsPanel extends JPanel {
 
         revalidate();
         repaint();
+    }
+
+    /**
+     * Creates a loading skeleton card.
+     */
+    private JPanel createSkeletonCard() {
+        JPanel skeleton = new JPanel(new BorderLayout());
+        skeleton.setOpaque(false);
+        skeleton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        skeleton.setBorder(new EmptyBorder(16, 20, 16, 20));
+
+        JLabel leftBar = new JLabel("░░░░░░░░░░░░░░░░");
+        leftBar.setFont(ThemeManager.getBoldFont(16));
+        leftBar.setForeground(ThemeManager.getBorderColor());
+
+        JLabel rightBar = new JLabel("░░░░░░░░░░░");
+        rightBar.setFont(ThemeManager.getBoldFont(22));
+        rightBar.setForeground(ThemeManager.getBorderColor());
+
+        skeleton.add(leftBar, BorderLayout.WEST);
+        skeleton.add(rightBar, BorderLayout.EAST);
+
+        return skeleton;
     }
 
     public void loadAccounts() {
@@ -118,7 +145,7 @@ public class AccountsPanel extends JPanel {
     private CardPanel createAccountCard(String accNum, String holderName, String type,
                                          String balance, String rate, String interest) {
         Color accent = type.equals("Savings") ?
-                ThemeManager.getPrimaryAccentColor() : new Color(0xF4, 0xA2, 0x61);
+                ThemeManager.getPrimaryAccentColor() : ThemeManager.getWarningColor();
 
         CardPanel card = new CardPanel(null, accent);
         card.setLayout(new BorderLayout());
@@ -134,7 +161,8 @@ public class AccountsPanel extends JPanel {
         nameLabel.setFont(ThemeManager.getBoldFont(16));
         nameLabel.setForeground(ThemeManager.getTextLightColor());
 
-        JLabel accLabel = new JLabel(accNum + " • " + type + (AppLanguage.isHindi() ? " खाता" : " Account"));
+        JLabel accLabel = new JLabel(accNum + " • " + type +
+                (AppLanguage.isHindi() ? " खाता" : " Account"));
         accLabel.setFont(ThemeManager.getFont(13));
         accLabel.setForeground(ThemeManager.getTextMutedColor());
 

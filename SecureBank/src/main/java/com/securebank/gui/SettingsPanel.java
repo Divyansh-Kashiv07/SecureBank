@@ -2,15 +2,14 @@ package com.securebank.gui;
 
 import com.securebank.gui.components.CardPanel;
 import com.securebank.gui.components.NotificationPanel;
+import com.securebank.gui.components.StyledButton;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
 /**
- * SettingsPanel — app settings including language toggle.
- *
- * Now supports dynamically changing Theme and Font Size using ThemeManager.
+ * SettingsPanel — app settings with polished styling.
  */
 public class SettingsPanel extends JPanel {
 
@@ -27,7 +26,7 @@ public class SettingsPanel extends JPanel {
         removeAll();
         setBackground(ThemeManager.getBackgroundColor());
 
-        // Use JTabbedPane for "Themes Tab"
+        // Use JTabbedPane for settings tabs
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.setFont(ThemeManager.getBoldFont(14));
         tabbedPane.setBackground(ThemeManager.getCardColor());
@@ -57,19 +56,19 @@ public class SettingsPanel extends JPanel {
 
         JComboBox<String> fontSizeSelector = new JComboBox<>(
                 new String[]{"Small", "Medium", "Large"});
-        
+
         ThemeManager.FontSize currentSize = ThemeManager.getFontSize();
         if (currentSize == ThemeManager.FontSize.SMALL) fontSizeSelector.setSelectedIndex(0);
         else if (currentSize == ThemeManager.FontSize.LARGE) fontSizeSelector.setSelectedIndex(2);
         else fontSizeSelector.setSelectedIndex(1);
-        
+
         fontSizeSelector.setPreferredSize(new Dimension(140, 30));
         fontSizeSelector.addActionListener(e -> {
             int idx = fontSizeSelector.getSelectedIndex();
             if (idx == 0) ThemeManager.setFontSize(ThemeManager.FontSize.SMALL);
             else if (idx == 2) ThemeManager.setFontSize(ThemeManager.FontSize.LARGE);
             else ThemeManager.setFontSize(ThemeManager.FontSize.MEDIUM);
-            
+
             if (parentFrame instanceof SecureBankApp) {
                 ((SecureBankApp) parentFrame).refreshAllPanelsForLanguage();
             }
@@ -78,9 +77,9 @@ public class SettingsPanel extends JPanel {
         fontRow.add(fontLabel, BorderLayout.WEST);
         fontRow.add(fontSizeSelector, BorderLayout.EAST);
         generalCard.add(fontRow);
-        
+
         generalCard.add(Box.createVerticalGlue());
-        
+
         // Version info
         JLabel versionLabel = new JLabel(AppLanguage.get("settings.version"));
         versionLabel.setFont(ThemeManager.getItalicFont(12));
@@ -112,19 +111,19 @@ public class SettingsPanel extends JPanel {
 
         JComboBox<String> themeSelector = new JComboBox<>(
                 new String[]{"Neon", "Navy Blue", "Darker Black"});
-        
+
         ThemeManager.Theme currentTheme = ThemeManager.getTheme();
         if (currentTheme == ThemeManager.Theme.NEON) themeSelector.setSelectedIndex(0);
         else if (currentTheme == ThemeManager.Theme.NAVY_BLUE) themeSelector.setSelectedIndex(1);
         else themeSelector.setSelectedIndex(2);
-        
+
         themeSelector.setPreferredSize(new Dimension(140, 30));
         themeSelector.addActionListener(e -> {
             int idx = themeSelector.getSelectedIndex();
             if (idx == 0) ThemeManager.setTheme(ThemeManager.Theme.NEON);
             else if (idx == 1) ThemeManager.setTheme(ThemeManager.Theme.NAVY_BLUE);
             else ThemeManager.setTheme(ThemeManager.Theme.DARKER_BLACK);
-            
+
             if (parentFrame instanceof SecureBankApp) {
                 ((SecureBankApp) parentFrame).refreshAllPanelsForLanguage();
             }
@@ -133,16 +132,16 @@ public class SettingsPanel extends JPanel {
         themeRow.add(themeLabel, BorderLayout.WEST);
         themeRow.add(themeSelector, BorderLayout.EAST);
         themesCard.add(themeRow);
-        
+
         themesCard.add(Box.createVerticalGlue());
 
         // Add tabs
         tabbedPane.addTab("General", generalCard);
         tabbedPane.addTab("Themes", themesCard);
-        
+
         tabbedPane.setPreferredSize(new Dimension(480, 400));
         add(tabbedPane);
-        
+
         revalidate();
         repaint();
     }

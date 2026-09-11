@@ -1,7 +1,9 @@
 package com.securebank.loans;
 
 import com.securebank.core.Account;
+import com.securebank.exceptions.AccountInactiveException;
 import com.securebank.repository.Repository;
+import com.securebank.transactions.TransactionType;
 import com.securebank.utils.FileIOHelper;
 import com.securebank.utils.IDGenerator;
 
@@ -159,8 +161,16 @@ public class LoanProcessor {
             return false;
         }
 
-        // Credit the loan amount to the account
-        account.deposit(loan.getAmount(), "Loan disbursement - " + loanId);
+        // Credit the loan amount to the account — recorded with the dedicated
+        // LOAN_DISBURSEMENT type so history and reports can distinguish it from
+        // a customer deposit. A frozen account cannot receive a disbursement.
+        try {
+            account.deposit(loan.getAmount(), "Loan disbursement - " + loanId,
+                    TransactionType.LOAN_DISBURSEMENT);
+        } catch (AccountInactiveException e) {
+            System.out.println("Loan disbursement failed: " + e.getMessage());
+            return false;
+        }
         loan.setStatus(LoanStatus.ACTIVE);
 
         return true;
@@ -196,8 +206,10 @@ public class LoanProcessor {
 
     /**
      * Saves all loans to file.
+     *
+     * @throws java.io.IOException if persistence fails — callers must handle this
      */
-    public void saveToFile() {
+    public void saveToFile() throws java.io.IOException {
         FileIOHelper.saveLoans(loanRepository.getAll());
     }
 

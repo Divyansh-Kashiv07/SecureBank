@@ -10,7 +10,9 @@ import com.securebank.transactions.Transaction;
 import com.securebank.transactions.TransactionLogger;
 import com.securebank.utils.FileIOHelper;
 import com.securebank.utils.IDGenerator;
+import com.securebank.utils.PasswordHasher;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -72,6 +74,9 @@ public class BankServer {
     /** Flag to control the server's accept loop */
     private volatile boolean running;
 
+    /** The actually bound port (may differ from the requested one when port 0 is used) */
+    private volatile int boundPort;
+
     /** Default port if none specified via CLI */
     public static final int DEFAULT_PORT = 8888;
 
@@ -85,7 +90,10 @@ public class BankServer {
         this.accountRepository = new AccountRepository();
         this.customerRepository = new CustomerRepository();
         this.loanProcessor = new LoanProcessor();
-        this.transactionLogger = new TransactionLogger("data/transaction_log.txt");
+        // Respect the configurable data directory so tests never write into the real data dir
+        String dataDir = System.getProperty("securebank.data.dir", "data");
+        this.transactionLogger = new TransactionLogger(
+                dataDir + File.separator + "transaction_log.txt");
         this.running = false;
     }
 
@@ -119,8 +127,10 @@ public class BankServer {
             // Step 3: Start the daemon transaction logger
             transactionLogger.start();
 
-            // Step 4: Open the ServerSocket
+            // Step 4: Open the ServerSocket (port 0 lets the OS assign an ephemeral
+            // port — used by integration tests to avoid collisions with running servers)
             serverSocket = new ServerSocket(port);
+            boundPort = serverSocket.getLocalPort();
             running = true;
 
             System.out.println("╔══════════════════════════════════════════════════╗");
@@ -202,13 +212,22 @@ public class BankServer {
 
     /**
      * Saves all in-memory data to files (for persistence between restarts).
+     *
+     * RELIABILITY: failures are logged CRITICALLY but not rethrown — this runs
+     * in shutdown hooks and auto-save paths where there is no caller left to
+     * report to. The atomic-save design means a failure leaves the previous
+     * data files intact rather than corrupting them.
      */
     public void saveAllData() {
         System.out.println("[Server] Saving all data to files...");
-        accountRepository.saveToFile();
-        customerRepository.saveToFile();
-        loanProcessor.saveToFile();
-        System.out.println("[Server] All data saved.");
+        try {
+            accountRepository.saveToFile();
+            customerRepository.saveToFile();
+            loanProcessor.saveToFile();
+            System.out.println("[Server] All data saved.");
+        } catch (IOException e) {
+            System.err.println("[Server] CRITICAL: failed to persist data: " + e.getMessage());
+        }
     }
 
     /**
@@ -219,10 +238,12 @@ public class BankServer {
         System.out.println("[Server] First run detected — seeding demo data...");
 
         // ---- Demo Customer 1: Divyansh Kashiv ----
+        // SECURITY: demo PINs are stored as salted PBKDF2 hashes from the start —
+        // no plaintext PIN ever reaches the data files
         Customer customer1 = new Customer(
                 "CUSTOMER-1", "Divyansh Kashiv",
                 "divyansh@hsbc.com", "9876543210",
-                "Greater Noida, UP", "1234"
+                "Greater Noida, UP", PasswordHasher.hash("1234")
         );
 
         String acc1Num = "ACC-001001";
@@ -241,7 +262,7 @@ public class BankServer {
         Customer customer2 = new Customer(
                 "CUSTOMER-2", "Priya Sharma",
                 "priya@securebank.com", "9876543211",
-                "Noida, UP", "5678"
+                "Noida, UP", PasswordHasher.hash("5678")
         );
 
         String acc3Num = "ACC-001003";
@@ -254,7 +275,7 @@ public class BankServer {
         Customer customer3 = new Customer(
                 "CUSTOMER-3", "Rahul Verma",
                 "rahul@securebank.com", "9876543212",
-                "Delhi, India", "9012"
+                "Delhi, India", PasswordHasher.hash("9012")
         );
 
         String acc4Num = "ACC-001004";
@@ -312,6 +333,14 @@ public class BankServer {
 
     public int getPort() {
         return port;
+    }
+
+    /**
+     * Returns the port the server actually bound to.
+     * Differs from {@link #getPort()} only when the server was started with port 0.
+     */
+    public synchronized int getBoundPort() {
+        return boundPort > 0 ? boundPort : port;
     }
 
     public boolean isRunning() {
