@@ -27,6 +27,9 @@ public class IDGenerator {
     /** Counter for loan IDs */
     private static final AtomicInteger loanCounter = new AtomicInteger(0);
 
+    /** Counter for beneficiary IDs */
+    private static final AtomicInteger beneficiaryCounter = new AtomicInteger(0);
+
     /**
      * Generates a unique account number.
      * Format: "ACC-001001", "ACC-001002", etc.
@@ -39,14 +42,14 @@ public class IDGenerator {
     }
 
     /**
-     * Generates a unique customer ID.
-     * Format: "CUSTOMER-1", "CUSTOMER-2", etc.
+     * Generates a unique beneficiary ID.
+     * Format: "BENE-000001", "BENE-000002", etc.
      *
-     * @return a unique customer ID string
+     * @return a unique beneficiary ID string
      */
-    public static String generateCustomerId() {
-        int id = customerCounter.incrementAndGet();
-        return String.format("CUSTOMER-%d", id);
+    public static String generateBeneficiaryId() {
+        int id = beneficiaryCounter.incrementAndGet();
+        return String.format("BENE-%06d", id);
     }
 
     /**
@@ -79,13 +82,16 @@ public class IDGenerator {
      * @param maxCustomer    the highest existing customer ID suffix
      * @param maxTransaction the highest existing transaction ID suffix
      * @param maxLoan        the highest existing loan ID suffix
+     * @param maxBeneficiary the highest existing beneficiary ID suffix
      */
     public static void initializeCounters(int maxAccount, int maxCustomer,
-                                           int maxTransaction, int maxLoan) {
+                                           int maxTransaction, int maxLoan,
+                                           int maxBeneficiary) {
         accountCounter.set(Math.max(1000, maxAccount));
         customerCounter.set(Math.max(0, maxCustomer));
         transactionCounter.set(maxTransaction);
         loanCounter.set(maxLoan);
+        beneficiaryCounter.set(maxBeneficiary);
     }
 
     /**

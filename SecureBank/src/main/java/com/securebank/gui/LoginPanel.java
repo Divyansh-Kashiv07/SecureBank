@@ -45,6 +45,11 @@ public class LoginPanel extends JPanel {
     private float fadeInProgress = 0f;
     private Timer fadeTimer;
 
+    /** Cinematic particle field (drifting light motes behind the card) */
+    private static final int PARTICLE_COUNT = 34;
+    private final java.util.List<Particle> particles = new java.util.ArrayList<>();
+    private Timer particleTimer;
+
     private EyeToggleButton eyeToggle;
 
     /** Callback interface for successful login */
@@ -65,7 +70,29 @@ public class LoginPanel extends JPanel {
         setBackground(ThemeManager.getBackgroundColor());
 
         buildForm();
+        initParticles();
         startFadeIn();
+    }
+
+    /** Seeds the particle field and starts its slow drift animation. */
+    private void initParticles() {
+        java.util.Random random = new java.util.Random();
+        for (int i = 0; i < PARTICLE_COUNT; i++) {
+            particles.add(new Particle(
+                    random.nextDouble() * 1400,
+                    random.nextDouble() * 800,
+                    random.nextDouble() * 2 * Math.PI));
+        }
+        if (particleTimer != null && particleTimer.isRunning()) {
+            particleTimer.stop();
+        }
+        particleTimer = new Timer(33, e -> {
+            for (Particle particle : particles) {
+                particle.advance(getWidth(), getHeight());
+            }
+            repaint();
+        });
+        particleTimer.start();
     }
 
     /**
@@ -78,13 +105,46 @@ public class LoginPanel extends JPanel {
         }
         fadeTimer = new Timer(16, e -> {
             fadeInProgress = Math.min(1.0f, fadeInProgress + 0.05f);
-            setOpaque(fadeInProgress >= 1.0f);
             repaint();
             if (fadeInProgress >= 1.0f) {
                 fadeTimer.stop();
             }
         });
         fadeTimer.start();
+    }
+
+    /** One drifting light mote. */
+    private static class Particle {
+        double x, y;
+        final double drift;
+        final double rise;
+        final int size;
+        final float alpha;
+        double phase;
+        final double twinkleSpeed;
+
+        Particle(double x, double y, double phase) {
+            java.util.Random random = new java.util.Random();
+            this.x = x;
+            this.y = y;
+            this.drift = 6 + random.nextDouble() * 14;      // px per second
+            this.rise = 10 + random.nextDouble() * 22;      // px per second
+            this.size = 2 + random.nextInt(4);
+            this.alpha = 0.10f + random.nextFloat() * 0.25f;
+            this.phase = phase;
+            this.twinkleSpeed = 1.0 + random.nextDouble() * 2.5;
+        }
+
+        /** Moves the mote one tick (33 ms) and wraps it around the panel. */
+        void advance(int width, int height) {
+            phase += twinkleSpeed * 0.033;
+            x += drift * 0.033;
+            y -= rise * 0.033;
+            if (width > 0) {
+                if (x > width + size) x = -size;
+                if (y < -size) y = height + size;
+            }
+        }
     }
 
     /**
@@ -242,11 +302,14 @@ public class LoginPanel extends JPanel {
         add(loginCard);
     }
 
-    /**
-     * Paints the animated gradient background.
-     */
+    /** Paints the animated gradient background with drifting light particles. */
     @Override
     protected void paintComponent(Graphics g) {
+        // Must run FIRST: when this panel is opaque, super fills the flat
+        // background color — calling it after the custom painting would wipe
+        // the gradient, glow and particles away on every repaint.
+        super.paintComponent(g);
+
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
@@ -260,12 +323,28 @@ public class LoginPanel extends JPanel {
             g2.setColor(new Color(ThemeManager.getPrimaryAccentColor().getRed(),
                     ThemeManager.getPrimaryAccentColor().getGreen(),
                     ThemeManager.getPrimaryAccentColor().getBlue(),
-                    Math.max(0, (int)(glowAlpha * 255 * (1 - i * 0.2)))));
+                    Math.max(0, (int) (glowAlpha * 255 * (1 - i * 0.2)))));
             g2.fillOval(getWidth() / 2 - r, getHeight() / 2 - r, r * 2, r * 2);
         }
 
+        // Cinematic: drifting light particles, faded in with the panel
+        if (fadeInProgress > 0.1f) {
+            Composite original = g2.getComposite();
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                    fadeInProgress));
+            Color particleTint = ThemeManager.getTextLightColor();
+            for (Particle particle : particles) {
+                float twinkle = 0.55f + 0.45f * (float) Math.sin(particle.phase);
+                int alpha = (int) (particle.alpha * twinkle * 255);
+                g2.setColor(new Color(particleTint.getRed(), particleTint.getGreen(),
+                        particleTint.getBlue(), Math.max(0, alpha)));
+                g2.fillOval((int) particle.x, (int) particle.y,
+                        particle.size, particle.size);
+            }
+            g2.setComposite(original);
+        }
+
         g2.dispose();
-        super.paintComponent(g);
     }
 
     /**

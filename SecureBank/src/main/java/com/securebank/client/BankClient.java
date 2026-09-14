@@ -297,6 +297,41 @@ public class BankClient {
         return sendRequest("INTEREST|" + accountNumber);
     }
 
+    // ==================== SAVED PAYEES (BENEFICIARIES) ====================
+
+    /**
+     * Lists the signed-in customer's saved payees.
+     *
+     * @return server response: "OK|id|name|account|bank|nickname;..." or "OK|EMPTY"
+     */
+    public String listBeneficiaries() {
+        return sendRequest("BENEFICIARY_LIST");
+    }
+
+    /**
+     * Saves a new payee for the signed-in customer.
+     *
+     * @param name          the payee's account holder name
+     * @param accountNumber the payee's account number
+     * @param bankName      the payee's bank
+     * @param nickname      optional short label
+     * @return server response: "OK|beneficiaryId" or "ERROR|message"
+     */
+    public String addBeneficiary(String name, String accountNumber, String bankName, String nickname) {
+        return sendRequest("BENEFICIARY_ADD|" + name + "|" + accountNumber
+                + "|" + bankName + "|" + nickname);
+    }
+
+    /**
+     * Removes one of the signed-in customer's saved payees.
+     *
+     * @param beneficiaryId the payee's id
+     * @return server response: "OK|message" or "ERROR|message"
+     */
+    public String removeBeneficiary(String beneficiaryId) {
+        return sendRequest("BENEFICIARY_REMOVE|" + beneficiaryId);
+    }
+
     // ==================== STATE QUERIES ====================
 
     public boolean isConnected() {

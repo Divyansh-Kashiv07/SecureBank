@@ -1,6 +1,7 @@
 package com.securebank.utils;
 
 import com.securebank.core.Account;
+import com.securebank.core.Beneficiary;
 import com.securebank.core.CurrentAccount;
 import com.securebank.core.Customer;
 import com.securebank.core.SavingsAccount;
@@ -64,6 +65,7 @@ public class FileIOHelper {
     private static final String ACCOUNTS_FILE = "accounts.dat";
     private static final String CUSTOMERS_FILE = "customers.dat";
     private static final String LOANS_FILE = "loans.dat";
+    private static final String BENEFICIARIES_FILE = "beneficiaries.dat";
 
     /**
      * Ensures the data directory exists. Creates it on first run.
@@ -403,6 +405,59 @@ public class FileIOHelper {
         }
 
         return loans;
+    }
+
+    // ==================== BENEFICIARY PERSISTENCE ====================
+
+    /**
+     * Saves all beneficiaries to the beneficiaries data file (atomic).
+     *
+     * @throws IOException if the data cannot be written — callers must handle this
+     */
+    public static void saveBeneficiaries(List<Beneficiary> beneficiaries) throws IOException {
+        ensureDataDirectory();
+        Path filePath = Paths.get(dataDir(), BENEFICIARIES_FILE);
+
+        List<String> lines = new ArrayList<>();
+        for (Beneficiary beneficiary : beneficiaries) {
+            lines.add(beneficiary.toFileString());
+        }
+        writeFileAtomically(filePath, lines);
+
+        System.out.println("[FileIO] Saved " + beneficiaries.size() + " beneficiaries.");
+    }
+
+    /**
+     * Loads all beneficiaries from the beneficiaries data file.
+     * Tolerant: malformed lines are skipped and logged.
+     */
+    public static List<Beneficiary> loadBeneficiaries() {
+        ensureDataDirectoryQuietly();
+        List<Beneficiary> beneficiaries = new ArrayList<>();
+        Path filePath = Paths.get(dataDir(), BENEFICIARIES_FILE);
+
+        if (!Files.exists(filePath)) return beneficiaries;
+
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
+            String line;
+            int lineNumber = 0;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                Beneficiary beneficiary = Beneficiary.fromFileString(line);
+                if (beneficiary != null) {
+                    beneficiaries.add(beneficiary);
+                } else {
+                    System.err.println("[FileIO] Skipping malformed beneficiary line " + lineNumber);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[FileIO] ERROR loading beneficiaries: " + e.getMessage());
+        }
+
+        return beneficiaries;
     }
 
     /**

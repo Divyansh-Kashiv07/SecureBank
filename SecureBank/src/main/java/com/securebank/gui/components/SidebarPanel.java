@@ -89,6 +89,7 @@ public class SidebarPanel extends JPanel {
         // Navigation items with icons
         addNavItem(contentPanel, BankIcon.IconType.DASHBOARD, AppLanguage.get("sidebar.dashboard"), "Dashboard");
         addNavItem(contentPanel, BankIcon.IconType.ACCOUNTS, AppLanguage.get("sidebar.accounts"), "Accounts");
+        addNavItem(contentPanel, BankIcon.IconType.PAYEES, AppLanguage.get("sidebar.payees"), "Beneficiaries");
         addNavItem(contentPanel, BankIcon.IconType.DEPOSIT_WITHDRAW, AppLanguage.get("sidebar.deposit.withdraw"), "DepositWithdraw");
         addNavItem(contentPanel, BankIcon.IconType.TRANSFER, AppLanguage.get("sidebar.transfer"), "Transfer");
         addNavItem(contentPanel, BankIcon.IconType.LOANS, AppLanguage.get("sidebar.loans"), "Loans");

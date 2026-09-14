@@ -166,38 +166,49 @@ public class NotificationPanel extends JPanel {
 
     /**
      * Displays a notification at the top-right of the given frame.
+     *
+     * Mounts on the frame's LAYERED PANE (POPUP layer) rather than the glass
+     * pane: the glass pane is made visible here and would then swallow every
+     * mouse click in the window, while POPUP floats above all content and
+     * blocks nothing. Coordinates are taken in client space (content pane
+     * origin), so toasts align with the window edge without decoration offset.
      */
     private static void show(JFrame frame, String message, NotificationType type) {
         if (frame == null) return;
 
         NotificationPanel notification = new NotificationPanel(message, type);
 
-        // Get the glass pane (overlay layer) of the frame
-        JPanel glassPane = (JPanel) frame.getGlassPane();
-        glassPane.setVisible(true);
-        glassPane.setLayout(null);
-        glassPane.setOpaque(false);
-
-        // Calculate dynamic width based on message length
+        JLayeredPane layeredPane = frame.getLayeredPane();
         int width = Math.max(350, notification.getPreferredSize().width);
-        int x = frame.getWidth() - width - 20;
-        int baseY = 15;
+        // Client-space x/y relative to the layered pane: account for the
+        // content pane's inset (decorations live outside the layered pane).
+        JRootPane rootPane = frame.getRootPane();
+        int contentX = rootPane.getContentPane().getX();
+        int contentY = rootPane.getContentPane().getY();
+        int x = rootPane.getWidth() - width - 20 + contentX;
+        int baseY = contentY + 15;
 
         // Stack multiple notifications
-        Component[] existing = glassPane.getComponents();
-        final int y = baseY + existing.length * 60;
+        int existing = 0;
+        for (Component c : layeredPane.getComponentsInLayer(JLayeredPane.POPUP_LAYER)) {
+            if (c instanceof NotificationPanel) existing++;
+        }
+        final int y = baseY + existing * 60;
 
         notification.setBounds(x, y, width, 50);
-        glassPane.add(notification);
-        glassPane.revalidate();
-        glassPane.repaint();
+        layeredPane.add(notification, JLayeredPane.POPUP_LAYER);
+        layeredPane.repaint(notification.getBounds());
 
-        // Start slide-in animation
+        // Slide-in: start just off the right edge of the layered pane, end at x.
+        // (The old math evaluated to x + width at progress 1, pushing most of
+        // the toast outside the window — the "error not visible" bug.)
+        final int startX = rootPane.getWidth();
+        final int targetX = x;
+        notification.setLocation(startX, y);
         notification.slideProgress = 0f;
         notification.slideTimer = new Timer(16, e -> {
             notification.slideProgress = Math.min(1.0f, notification.slideProgress + 0.06f);
-            int currentX = (int) (frame.getWidth() + width -
-                    (frame.getWidth() - x) * notification.slideProgress);
+            int currentX = (int) (startX - (startX - targetX) * notification.slideProgress);
             notification.setLocation(currentX, y);
             notification.repaint();
             if (notification.slideProgress >= 1.0f) {

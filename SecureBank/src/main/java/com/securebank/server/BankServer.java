@@ -1,193 +1,134 @@
 package com.securebank.server;
 
-import com.securebank.core.*;
-import com.securebank.exceptions.*;
-import com.securebank.loans.Loan;
 import com.securebank.loans.LoanProcessor;
 import com.securebank.repository.AccountRepository;
+import com.securebank.repository.BeneficiaryRepository;
 import com.securebank.repository.CustomerRepository;
-import com.securebank.transactions.Transaction;
+import com.securebank.service.BankService;
 import com.securebank.transactions.TransactionLogger;
-import com.securebank.utils.FileIOHelper;
-import com.securebank.utils.IDGenerator;
-import com.securebank.utils.PasswordHasher;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.List;
 
 /**
- * BankServer — the central TCP server that handles all banking operations.
+ * BankServer — the TCP front door of the bank.
  *
- * RUBRIC COVERAGE:
- * - Unit 4: Socket Programming — uses ServerSocket for TCP server.
- * - Unit 4: Multithreading — spawns a ClientHandler thread per connected client.
- * - Unit 4: Daemon thread — starts TransactionLogger as background logging service.
- * - Unit 1: Command-line argument support — accepts port number from CLI.
+ * The server owns the socket lifecycle and nothing else:
+ * 1. Opens a ServerSocket on the configured port.
+ * 2. Blocks in accept() waiting for clients.
+ * 3. Spawns one {@link ClientHandler} thread per connection (so several
+ *    customers are served concurrently).
+ * 4. Wires the shared repositories + transaction log daemon into a single
+ *    {@link BankService} instance that every handler shares.
+ * 5. Shuts down gracefully, flushing all data to disk.
  *
- * ARCHITECTURE:
- * The BankServer is the "brain" of the application. It:
- * 1. Opens a ServerSocket on a configurable port
- * 2. Waits for client connections in a loop (accept())
- * 3. For each client, spawns a new ClientHandler thread
- * 4. Holds the master repositories (accounts, customers) — shared across all threads
- * 5. Runs a daemon TransactionLogger for async file logging
+ * Every banking rule, authorization decision and persistence call lives in
+ * BankService — the server never touches account state directly.
  *
- * VIVA NOTE — WHY TCP SOCKETS?
- * TCP (Transmission Control Protocol) guarantees:
- * - Reliable delivery (no lost data)
- * - Ordered delivery (messages arrive in sequence)
- * - Error detection (corrupted data is retransmitted)
- *
- * For banking, this is critical — we CANNOT lose a deposit or withdrawal message.
- * UDP would be faster but unreliable. Imagine a deposit message getting lost!
- *
- * HOW ServerSocket WORKS:
- * 1. ServerSocket binds to a port (e.g., 8888)
- * 2. accept() BLOCKS until a client connects (returns a Socket)
- * 3. The Socket represents the two-way communication channel
- * 4. We hand the Socket to a ClientHandler thread
- * 5. Go back to accept() for the next client
+ * WHY TCP: a deposit or withdrawal must never be lost or reordered, so the
+ * protocol needs TCP's reliable, ordered delivery.
  */
 public class BankServer {
 
-    /** The TCP server socket that listens for incoming connections */
-    private ServerSocket serverSocket;
-
-    /** Port number to listen on */
-    private final int port;
-
-    /** Master repository for all accounts — shared across all client threads */
-    private final AccountRepository accountRepository;
-
-    /** Master repository for all customers — shared across all client threads */
-    private final CustomerRepository customerRepository;
-
-    /** Loan processing engine */
-    private final LoanProcessor loanProcessor;
-
-    /** Daemon thread for asynchronous transaction logging */
-    private final TransactionLogger transactionLogger;
-
-    /** Flag to control the server's accept loop */
-    private volatile boolean running;
-
-    /** The actually bound port (may differ from the requested one when port 0 is used) */
-    private volatile int boundPort;
-
-    /** Default port if none specified via CLI */
+    /** Default port if none is specified on the command line. */
     public static final int DEFAULT_PORT = 8888;
 
+    /** The TCP server socket that listens for incoming connections. */
+    private volatile ServerSocket serverSocket;
+
+    /** Port number requested on construction (0 = let the OS pick a free one). */
+    private final int port;
+
+    /** The actually bound port — only differs from {@link #port} when port 0 was used. */
+    private volatile int boundPort;
+
+    /** The application service shared by every client handler. */
+    private final BankService bankService;
+
+    /** Daemon thread that writes the transaction log asynchronously. */
+    private final TransactionLogger transactionLogger;
+
+    /** Flag controlling the accept loop. */
+    private volatile boolean running;
+
     /**
-     * Creates a new BankServer on the specified port.
+     * Creates a server and its object graph (repositories, logger, service).
      *
-     * @param port the TCP port to listen on (e.g., 8888)
+     * @param port the TCP port to listen on (0 = ephemeral, used by tests)
      */
     public BankServer(int port) {
         this.port = port;
-        this.accountRepository = new AccountRepository();
-        this.customerRepository = new CustomerRepository();
-        this.loanProcessor = new LoanProcessor();
+
+        AccountRepository accountRepository = new AccountRepository();
+        CustomerRepository customerRepository = new CustomerRepository();
+        BeneficiaryRepository beneficiaryRepository = new BeneficiaryRepository();
+        LoanProcessor loanProcessor = new LoanProcessor();
+
         // Respect the configurable data directory so tests never write into the real data dir
         String dataDir = System.getProperty("securebank.data.dir", "data");
         this.transactionLogger = new TransactionLogger(
                 dataDir + File.separator + "transaction_log.txt");
-        this.running = false;
+
+        this.bankService = new BankService(accountRepository, customerRepository,
+                loanProcessor, beneficiaryRepository, transactionLogger);
     }
 
     /**
-     * Starts the bank server:
-     * 1. Loads persisted data from files
-     * 2. Seeds demo data if empty (first run)
-     * 3. Starts the daemon TransactionLogger
-     * 4. Opens the ServerSocket
-     * 5. Enters the accept loop
-     *
-     * RUBRIC: Unit 4 — ServerSocket creation and accept loop.
+     * Loads persisted state, opens the socket and serves clients until stopped.
      */
     public void start() {
         try {
-            // Step 1: Load data from files
             System.out.println("[Server] Loading data from files...");
-            FileIOHelper.ensureDataDirectory();
-            accountRepository.loadFromFile();
-            customerRepository.loadFromFile();
-            loanProcessor.loadFromFile();
+            bankService.loadAll();
 
-            // Step 2: Seed demo data if this is the first run
-            if (customerRepository.size() == 0) {
-                seedDemoData();
+            if (bankService.isEmpty()) {
+                bankService.seedDemoData();
             }
+            bankService.updateIdCounters();
+            bankService.startLogger();
 
-            // Update ID counters based on loaded data
-            updateIDCounters();
-
-            // Step 3: Start the daemon transaction logger
-            transactionLogger.start();
-
-            // Step 4: Open the ServerSocket (port 0 lets the OS assign an ephemeral
-            // port — used by integration tests to avoid collisions with running servers)
+            // Port 0 lets the OS assign an ephemeral port (integration tests)
             serverSocket = new ServerSocket(port);
             boundPort = serverSocket.getLocalPort();
             running = true;
 
-            System.out.println("╔══════════════════════════════════════════════════╗");
-            System.out.println("║     SecureBank Server — RUNNING                 ║");
-            System.out.println("║     Port: " + port + "                                    ║");
-            System.out.println("║     Accounts: " + accountRepository.size() +
-                    "  |  Customers: " + customerRepository.size() + "            ║");
-            System.out.println("╚══════════════════════════════════════════════════╝");
+            printBanner();
             System.out.println("[Server] Waiting for client connections...\n");
 
-            // Step 5: Accept loop — runs until server is stopped
             while (running) {
                 try {
                     // BLOCKING CALL: waits here until a client connects
                     Socket clientSocket = serverSocket.accept();
+                    System.out.println("[Server] New client connected from: "
+                            + clientSocket.getInetAddress().getHostAddress());
 
-                    System.out.println("[Server] New client connected from: " +
-                            clientSocket.getInetAddress().getHostAddress());
-
-                    // Create a handler for this client — it implements Runnable
-                    ClientHandler handler = new ClientHandler(
-                            clientSocket,
-                            accountRepository,
-                            customerRepository,
-                            loanProcessor,
-                            transactionLogger
-                    );
-
-                    // Spawn a new thread for this client
-                    // RUBRIC: Unit 4 — each client gets its own thread
-                    Thread clientThread = new Thread(handler,
-                            "Client-" + clientSocket.getInetAddress().getHostAddress() +
-                                    ":" + clientSocket.getPort());
+                    Thread clientThread = new Thread(new ClientHandler(clientSocket, bankService),
+                            "Client-" + clientSocket.getInetAddress().getHostAddress()
+                                    + ":" + clientSocket.getPort());
                     clientThread.start();
 
                 } catch (IOException e) {
                     if (running) {
                         System.err.println("[Server] Error accepting connection: " + e.getMessage());
                     }
-                    // If !running, the exception is from serverSocket.close() during shutdown — expected
+                    // When !running the exception comes from serverSocket.close() during
+                    // shutdown and is expected
                 }
             }
 
         } catch (IOException e) {
-            System.err.println("[Server] FATAL: Could not start server on port " + port +
-                    ": " + e.getMessage());
-            System.err.println("[Server] Tip: Is port " + port +
-                    " already in use? Try a different port.");
+            System.err.println("[Server] FATAL: Could not start server on port " + port
+                    + ": " + e.getMessage());
+            System.err.println("[Server] Tip: Is port " + port
+                    + " already in use? Try a different port.");
         }
     }
 
     /**
-     * Stops the server gracefully:
-     * 1. Sets running flag to false
-     * 2. Closes the ServerSocket (unblocks accept())
-     * 3. Saves all data to files
-     * 4. Stops the transaction logger
+     * Stops the server gracefully: stops accepting, saves everything, drains
+     * and stops the transaction logger.
      */
     public void stop() {
         System.out.println("[Server] Shutting down...");
@@ -201,161 +142,57 @@ public class BankServer {
             System.err.println("[Server] Error closing server socket: " + e.getMessage());
         }
 
-        // Save all data to files before shutdown
         saveAllData();
-
-        // Stop the daemon logger
         transactionLogger.stop();
 
         System.out.println("[Server] Server stopped.");
     }
 
     /**
-     * Saves all in-memory data to files (for persistence between restarts).
+     * Persists all in-memory data.
      *
      * RELIABILITY: failures are logged CRITICALLY but not rethrown — this runs
-     * in shutdown hooks and auto-save paths where there is no caller left to
-     * report to. The atomic-save design means a failure leaves the previous
+     * from shutdown hooks and auto-save paths where there is no caller left to
+     * report to, and the atomic-save design means a failure leaves the previous
      * data files intact rather than corrupting them.
      */
     public void saveAllData() {
         System.out.println("[Server] Saving all data to files...");
         try {
-            accountRepository.saveToFile();
-            customerRepository.saveToFile();
-            loanProcessor.saveToFile();
+            bankService.saveAll();
             System.out.println("[Server] All data saved.");
         } catch (IOException e) {
             System.err.println("[Server] CRITICAL: failed to persist data: " + e.getMessage());
         }
     }
 
-    /**
-     * Seeds demo data for first-run demonstration.
-     * Creates sample customers and accounts so the app is immediately usable.
-     */
-    private void seedDemoData() {
-        System.out.println("[Server] First run detected — seeding demo data...");
-
-        // ---- Demo Customer 1: Divyansh Kashiv ----
-        // SECURITY: demo PINs are stored as salted PBKDF2 hashes from the start —
-        // no plaintext PIN ever reaches the data files
-        Customer customer1 = new Customer(
-                "CUSTOMER-1", "Divyansh Kashiv",
-                "divyansh@hsbc.com", "9876543210",
-                "Greater Noida, UP", PasswordHasher.hash("1234")
-        );
-
-        String acc1Num = "ACC-001001";
-        SavingsAccount savings1 = new SavingsAccount(
-                acc1Num, "Divyansh Kashiv", "CUSTOMER-1", 25000.0
-        );
-        customer1.addAccount(acc1Num);
-
-        String acc2Num = "ACC-001002";
-        CurrentAccount current1 = new CurrentAccount(
-                acc2Num, "Divyansh Kashiv", "CUSTOMER-1", 50000.0
-        );
-        customer1.addAccount(acc2Num);
-
-        // ---- Demo Customer 2: Priya Sharma ----
-        Customer customer2 = new Customer(
-                "CUSTOMER-2", "Priya Sharma",
-                "priya@securebank.com", "9876543211",
-                "Noida, UP", PasswordHasher.hash("5678")
-        );
-
-        String acc3Num = "ACC-001003";
-        SavingsAccount savings2 = new SavingsAccount(
-                acc3Num, "Priya Sharma", "CUSTOMER-2", 15000.0
-        );
-        customer2.addAccount(acc3Num);
-
-        // ---- Demo Customer 3: Rahul Verma ----
-        Customer customer3 = new Customer(
-                "CUSTOMER-3", "Rahul Verma",
-                "rahul@securebank.com", "9876543212",
-                "Delhi, India", PasswordHasher.hash("9012")
-        );
-
-        String acc4Num = "ACC-001004";
-        SavingsAccount savings3 = new SavingsAccount(
-                acc4Num, "Rahul Verma", "CUSTOMER-3", 35000.0
-        );
-        customer3.addAccount(acc4Num);
-
-        // Add to repositories
-        customerRepository.addCustomer(customer1);
-        customerRepository.addCustomer(customer2);
-        customerRepository.addCustomer(customer3);
-
-        accountRepository.addAccount(savings1);
-        accountRepository.addAccount(current1);
-        accountRepository.addAccount(savings2);
-        accountRepository.addAccount(savings3);
-
-        // Save immediately
-        saveAllData();
-
-        System.out.println("[Server] Demo data seeded:");
-        System.out.println("  Customer: CUSTOMER-1 (Divyansh Kashiv) — PIN: 1234");
-        System.out.println("            Accounts: " + acc1Num + " (Savings), " + acc2Num + " (Current)");
-        System.out.println("  Customer: CUSTOMER-2 (Priya Sharma) — PIN: 5678");
-        System.out.println("            Accounts: " + acc3Num + " (Savings)");
-        System.out.println("  Customer: CUSTOMER-3 (Rahul Verma) — PIN: 9012");
-        System.out.println("    → Savings: ACC-001004 (₹35,000)");
-        System.out.println();
+    /** Prints the startup banner with the live port and data counts. */
+    private void printBanner() {
+        System.out.println("╔══════════════════════════════════════════════════╗");
+        System.out.println("║     SecureBank Server — RUNNING                  ║");
+        System.out.println("║     Port: " + boundPort);
+        System.out.println("║     Accounts: " + bankService.getAccountCount()
+                + "  |  Customers: " + bankService.getCustomerCount());
+        System.out.println("╚══════════════════════════════════════════════════╝");
     }
 
-    /**
-     * Updates ID generator counters based on loaded data to prevent ID collisions.
-     */
-    private void updateIDCounters() {
-        int maxAcc = 1000, maxCust = 100, maxTxn = 0, maxLoan = 0;
+    // ==================== STATE ====================
 
-        for (Account acc : accountRepository.getAllAccounts()) {
-            maxAcc = Math.max(maxAcc, IDGenerator.extractNumber(acc.getAccountNumber()));
-            for (Transaction txn : acc.getTransactionHistory()) {
-                maxTxn = Math.max(maxTxn, IDGenerator.extractNumber(txn.getTransactionId()));
-            }
-        }
-        for (Customer cust : customerRepository.getAllCustomers()) {
-            maxCust = Math.max(maxCust, IDGenerator.extractNumber(cust.getCustomerId()));
-        }
-        for (Loan loan : loanProcessor.getAllLoans()) {
-            maxLoan = Math.max(maxLoan, IDGenerator.extractNumber(loan.getLoanId()));
-        }
-
-        IDGenerator.initializeCounters(maxAcc, maxCust, maxTxn, maxLoan);
-    }
-
-    // ==================== GETTERS ====================
-
+    /** @return the port the server was asked to bind */
     public int getPort() {
         return port;
     }
 
     /**
-     * Returns the port the server actually bound to.
-     * Differs from {@link #getPort()} only when the server was started with port 0.
+     * @return the port the server actually bound. Differs from {@link #getPort()}
+     *         only when the server was started with port 0.
      */
     public synchronized int getBoundPort() {
         return boundPort > 0 ? boundPort : port;
     }
 
+    /** @return true while the accept loop is running */
     public boolean isRunning() {
         return running;
-    }
-
-    public AccountRepository getAccountRepository() {
-        return accountRepository;
-    }
-
-    public CustomerRepository getCustomerRepository() {
-        return customerRepository;
-    }
-
-    public LoanProcessor getLoanProcessor() {
-        return loanProcessor;
     }
 }

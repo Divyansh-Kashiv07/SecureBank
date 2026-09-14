@@ -27,7 +27,8 @@ public class BankIcon extends JPanel {
         SETTINGS,       // Gear
         LOGOUT,         // Door with arrow
         SHIELD,         // Security shield
-        CHART_UP        // Trending up
+        CHART_UP,       // Trending up
+        PAYEES          // Person with plus — saved payees
     }
 
     private IconType iconType;
@@ -85,12 +86,26 @@ public class BankIcon extends JPanel {
             case LOGOUT: drawLogout(g2, pad, s); break;
             case SHIELD: drawShield(g2, pad, s); break;
             case CHART_UP: drawChartUp(g2, pad, s); break;
+            case PAYEES: drawPayees(g2, pad, s); break;
         }
 
         g2.dispose();
     }
 
     // ---- Icon drawing methods ----
+
+    private void drawPayees(Graphics2D g2, int p, int s) {
+        // Person: head + shoulders (left)
+        g2.fillOval(p, p, (s - 2 * p) / 2, (s - 2 * p) / 2);
+        g2.fill(new RoundRectangle2D.Float(p, s - p - (s - 2 * p) / 3, (s - 2 * p) / 2 + 1,
+                (s - 2 * p) / 3 + 2, (s - 2 * p) / 4, (s - 2 * p) / 4));
+        // Plus sign (top-right)
+        int arm = Math.max(2, (s - 2 * p) / 6);
+        int cx = s - p - arm / 2;
+        int cy = p + arm / 2;
+        g2.fillRect(cx - arm, cy - arm / 3, 2 * arm, (2 * arm) / 3 + 1);
+        g2.fillRect(cx - arm / 3, cy - arm, (2 * arm) / 3 + 1, 2 * arm);
+    }
 
     private void drawDashboard(Graphics2D g2, int p, int s) {
         int gap = s / 12;
