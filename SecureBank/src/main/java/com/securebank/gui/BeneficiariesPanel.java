@@ -102,7 +102,7 @@ public class BeneficiariesPanel extends JPanel {
         form.add(nicknameField);
 
         StyledButton save = new StyledButton(AppLanguage.get("bene.add.button"), ThemeManager.getPrimaryAccentColor());
-        save.addActionListener(e -> addPayee());
+        save.addActionListener(e -> addPayee(save));
         form.add(save);
 
         return form;
@@ -230,14 +230,14 @@ public class BeneficiariesPanel extends JPanel {
 
         StyledButton remove = new StyledButton(AppLanguage.get("bene.remove"), ThemeManager.getDangerColor());
         remove.setPreferredSize(new Dimension(100, 34));
-        remove.addActionListener(e -> removePayee(id, name));
+        remove.addActionListener(e -> removePayee(id, name, remove));
         card.add(remove, BorderLayout.EAST);
 
         return card;
     }
 
-    /** Sends BENEFICIARY_ADD and refreshes the list on success. */
-    private void addPayee() {
+    /** Sends BENEFICIARY_ADD off the EDT and refreshes the list on success. */
+    private void addPayee(StyledButton saveButton) {
         String name = nameField.getText().trim();
         String account = accountField.getText().trim();
         if (name.isEmpty() || account.isEmpty()) {
@@ -249,7 +249,30 @@ public class BeneficiariesPanel extends JPanel {
             return;
         }
 
-        String response = client.addBeneficiary(name, account, bankField.getText().trim(), nicknameField.getText().trim());
+        String bank = bankField.getText().trim();
+        String nickname = nicknameField.getText().trim();
+        saveButton.setEnabled(false);
+
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                return client.addBeneficiary(name, account, bank, nickname);
+            }
+
+            @Override
+            protected void done() {
+                saveButton.setEnabled(true);
+                try {
+                    handleAddResponse(get());
+                } catch (Exception e) {
+                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.server.error"));
+                }
+            }
+        }.execute();
+    }
+
+    /** Applies a BENEFICIARY_ADD response on the EDT (toast + list refresh). */
+    private void handleAddResponse(String response) {
         if (response != null && response.startsWith("OK|")) {
             NotificationPanel.showSuccess(parentFrame, AppLanguage.get("bene.added"));
             clearForm();
@@ -261,9 +284,34 @@ public class BeneficiariesPanel extends JPanel {
         }
     }
 
-    /** Sends BENEFICIARY_REMOVE and refreshes the list on success. */
-    private void removePayee(String id, String name) {
-        String response = client.removeBeneficiary(id);
+    /** Sends BENEFICIARY_REMOVE off the EDT and refreshes the list on success. */
+    private void removePayee(String id, String name, StyledButton removeButton) {
+        if (client == null || !client.isConnected()) {
+            NotificationPanel.showError(parentFrame, AppLanguage.get("common.server.error"));
+            return;
+        }
+
+        removeButton.setEnabled(false);
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                return client.removeBeneficiary(id);
+            }
+
+            @Override
+            protected void done() {
+                removeButton.setEnabled(true);
+                try {
+                    handleRemoveResponse(get(), name);
+                } catch (Exception e) {
+                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.server.error"));
+                }
+            }
+        }.execute();
+    }
+
+    /** Applies a BENEFICIARY_REMOVE response on the EDT (toast + list refresh). */
+    private void handleRemoveResponse(String response, String name) {
         if (response != null && response.startsWith("OK|")) {
             NotificationPanel.showInfo(parentFrame,
                     AppLanguage.get("bene.removed", "{name}", name));
