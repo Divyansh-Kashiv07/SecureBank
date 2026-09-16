@@ -329,7 +329,7 @@ package.bat
 SecureBank's entire codebase has been indexed into an interactive **knowledge graph** — 1,164 nodes across 57 communities, connected by 3,167 edges extracted via static AST analysis.
 
 ![SecureBank Knowledge Graph](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/knowledge_graph.png)
-*Force-directed knowledge graph — each color represents a code community (class cluster). Node size = number of connections. Generated with [Graphify](https://opengsd.dev).*
+*Force-directed knowledge graph — each color represents a code community (class cluster). Node size = number of connections. Generated using D3.js force-directed layout.*
 
 ### How to Explore the Graph
 

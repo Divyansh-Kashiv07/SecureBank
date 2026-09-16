@@ -9,7 +9,7 @@ out/
 SecureBank/apache-maven-3.9.6/
 SecureBank/maven.zip
 
-# --- Generated marketing/preview images (6-8 MB each; regenerate locally) ---
+# --- Generated preview images ---
 /Gemini_Generated_Image_*.png
 
 # --- Runtime data files (local persistence: balances, customers, logs) ---
@@ -21,8 +21,12 @@ data/
 *.log
 logs/
 
-# --- Agent/workspace metadata (local only) ---
+# --- Local workspace metadata ---
 .freebuff/
+.planning/
+graphify-out/
+obsidian_graph/
+.obsidian/
 
 # --- IDE ---
 .idea/

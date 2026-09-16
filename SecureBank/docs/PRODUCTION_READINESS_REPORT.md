@@ -8,7 +8,7 @@
 
 | Phase | Change | Key files |
 |-------|--------|-----------|
-| 0 | Repo hygiene: bundled Maven distribution, Gemini PNGs, and `data/` files (containing **plaintext demo PINs**) removed from git tracking; doc-reconciliation banner + ADR-001; README factual fixes | `.gitignore`, `README.md`, `docs/adr/ADR-001*` |
+| 0 | Repo hygiene: bundled Maven distribution, preview images, and `data/` files (containing **plaintext demo PINs**) removed from git tracking; doc-reconciliation banner + ADR-001; README factual fixes | `.gitignore`, `README.md`, `docs/adr/ADR-001*` |
 | 1 | Test safety net: JUnit 5 harness, configurable data dir (`securebank.data.dir`), ephemeral-port server for integration tests, 65 tests | `pom.xml`, `FileIOHelper`, `BankServer`, `src/test/**` |
 | 2 | Correctness: overdraft limit now persists; `appliedAt` restored on loan load; disbursements typed `LOAN_DISBURSEMENT`; **savings minimum-balance (₹1,000) and current-account overdraft actually enforced** in one shared validation path; frozen accounts reject all money movement; remarks sanitized (pipes stripped, 120-char cap) | `Account`, `Transferable`, `Loan`, `LoanProcessor`, `ClientHandler`, `FileIOHelper`, `AccountInactiveException` |
 | 3 | Security: per-connection sessions (LOGIN mandatory); ownership checks on every command (IDOR eliminated); salted PBKDF2 PIN hashing (120k iters, constant-time compare, legacy-plaintext auto-upgrade); 5-strikes/5-min login lockout; unified auth errors (no user enumeration); PIN masking in logs; 256-char request cap; `SAVE` server-side only; generic internal errors | `Session` (new), `PasswordHasher` (new), `ClientHandler`, `BankServer`, `Customer` |
