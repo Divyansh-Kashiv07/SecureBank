@@ -4,6 +4,8 @@
 ![Swing](https://img.shields.io/badge/GUI-Swing%20%2B%20FlatLaf-blue?style=flat-square)
 ![TCP](https://img.shields.io/badge/Network-TCP%20Sockets-green?style=flat-square)
 ![SDG](https://img.shields.io/badge/SDG-8%20Decent%20Work-red?style=flat-square)
+![i18n](https://img.shields.io/badge/i18n-English%20%2B%20Hindi-yellow?style=flat-square)
+![Nodes](https://img.shields.io/badge/Knowledge%20Graph-1%2C164%20nodes-purple?style=flat-square)
 
 > A modern, full-featured desktop banking operations platform built with **Core Java** — Swing GUI, TCP Sockets, file-based persistence, multithreading, and generics. Capstone project for "Object Oriented Techniques using Java" at NIET Greater Noida.
 
@@ -11,18 +13,31 @@
 
 ## ✨ Features
 
-- **Multi-account banking** — Savings & Current accounts with distinct interest rates
+### 🏛️ Core Banking
+- **Multi-account banking** — Savings & Current accounts with distinct interest rates (4% / 1%)
 - **Client-server architecture** — TCP socket-based communication with per-client threading
 - **Thread-safe transactions** — `synchronized` deposit/withdraw preventing race conditions
-- **Modern GUI** — FlatLaf-powered Swing with sidebar navigation, card-based dashboard, toast notifications
 - **Fund transfers** — Account-to-account with deadlock-safe lock ordering
-- **Loan management** — Application, approval, EMI calculation, disbursement
+- **Loan management** — Application, approval, EMI calculation, disbursement pipeline
 - **Transaction history** — Searchable/filterable with Lambda/Stream expressions
 - **File persistence** — Character stream (BufferedReader/BufferedWriter) based data storage
 - **Async logging** — Daemon thread transaction logger with BlockingQueue
-- **Dark mode** — FlatLightLaf ↔ FlatDarkLaf toggle
 - **Generic Repository** — Reusable `Repository<T>` CRUD pattern with Predicate-based search
 - **Reports & Analytics** — TreeMap-sorted reports with Java2D bar charts
+
+### 🆕 New Features (v1.1)
+- **Saved Payees / Beneficiaries** — Manage trusted payee accounts with instant add/remove, server-side validation, and loading skeleton UI
+- **i18n — English & Hindi** — Full internationalization via `AppLanguage` with HashMap-backed translations; switch languages live from Settings
+- **Dedicated ThemeManager** — Production-grade design token system with gradients, glass effects, and shadow constants. Themes: **Neon**, **Navy Blue**, **Darker Black**
+- **Dynamic Font Scaling** — Three font sizes (Small / Medium / Large) applied globally at runtime
+- **BankService Layer** — Unified service class separating business logic from the TCP protocol layer
+- **Login Security Lockout** — Configurable failed-attempt lockout with countdown feedback
+- **Interactive Knowledge Graph** — Full codebase visualized as a D3.js force graph (1,164 nodes, 3,167 edges, 57 communities) — see [graph section](#-knowledge-graph) below
+
+### 🎨 UI / UX
+- **Modern GUI** — FlatLaf-powered Swing with sidebar navigation, card-based dashboard, toast notifications
+- **Dark mode** — FlatLightLaf ↔ FlatDarkLaf toggle
+- **Custom components** — Rounded cards, styled inputs, progress buttons, toast notifications, Java2D mini-charts
 
 ---
 
@@ -38,6 +53,7 @@
 | **java.util.concurrent** | `BlockingQueue`, `AtomicInteger` for thread safety |
 | **Java2D** | Custom painting for charts and rounded components |
 | **Maven** | Build tool and dependency management |
+| **HashMap (i18n)** | Fast key-lookup translations via `AppLanguage` |
 
 ---
 
@@ -49,8 +65,9 @@ SecureBank uses a **client-server architecture** running on a single machine:
 2. **Swing GUI client** connects via `Socket` to the server
 3. Each client connection spawns a **dedicated `ClientHandler` thread** (implements `Runnable`)
 4. The server holds **shared repositories** (accounts, customers) protected by `synchronized` methods
-5. A **daemon thread** (`TransactionLogger`) asynchronously logs transactions to file
-6. On shutdown, a **shutdown hook** saves all in-memory data to text files
+5. A **BankService** layer mediates between handlers and domain objects
+6. A **daemon thread** (`TransactionLogger`) asynchronously logs transactions to file
+7. On shutdown, a **shutdown hook** saves all in-memory data to text files
 
 All communication uses a simple text-based protocol over TCP:
 ```
@@ -83,18 +100,18 @@ flowchart TD
     M --> P["Loan Application"]
     M --> Q["Transaction History"]
     M --> R["Reports"]
-    N & O & P --> S["Server processes<br/>(synchronized)"]
-    S --> T["Update balance<br/>+ Log transaction"]
-    T --> U["Save to files"]
-    U --> V["Response to GUI"]
-    V --> M
+    M --> S["Beneficiaries"]
+    N & O & P --> T["BankService<br/>(business logic)"]
+    T --> U["Server processes<br/>(synchronized)"]
+    U --> V["Update balance<br/>+ Log transaction"]
+    V --> W["Save to files"]
+    W --> X["Response to GUI"]
+    X --> M
 ```
 
 ---
 
 ## 🔄 Sequence Diagram — Deposit Flow (Concurrency Safety)
-
-This is the most important diagram — it shows exactly how `synchronized` prevents race conditions:
 
 ```mermaid
 sequenceDiagram
@@ -170,6 +187,9 @@ com.securebank/
 │   ├── AccountRepository.java → Repository<Account> wrapper
 │   └── CustomerRepository.java → Repository<Customer> wrapper
 │
+├── service/                 → 🆕 Business logic layer
+│   └── BankService.java     → Unified service mediating handlers ↔ domain objects
+│
 ├── server/                  → TCP server
 │   ├── BankServer.java      → ServerSocket, accept loop, data seeding
 │   └── ClientHandler.java   → Runnable, per-client protocol handler
@@ -179,7 +199,7 @@ com.securebank/
 │
 ├── gui/                     → Swing screens
 │   ├── SecureBankApp.java   → Main JFrame shell, CardLayout
-│   ├── LoginPanel.java      → Login form with SwingWorker auth
+│   ├── LoginPanel.java      → Login form with SwingWorker auth + lockout
 │   ├── DashboardPanel.java  → Card-based dashboard
 │   ├── AccountsPanel.java   → Account details & interest
 │   ├── DepositWithdrawPanel.java → Deposit/Withdraw form
@@ -187,7 +207,10 @@ com.securebank/
 │   ├── LoanPanel.java       → Loan application & status
 │   ├── TransactionHistoryPanel.java → Searchable history (JTable)
 │   ├── ReportsPanel.java    → TreeMap-sorted analytics
-│   └── SettingsPanel.java   → Dark mode toggle
+│   ├── BeneficiariesPanel.java → 🆕 Saved payee management
+│   ├── SettingsPanel.java   → Dark mode, language, font size
+│   ├── ThemeManager.java    → 🆕 Centralized design token system
+│   └── AppLanguage.java     → 🆕 i18n — English / Hindi HashMap lookup
 │
 ├── gui/components/          → Reusable custom components
 │   ├── SidebarPanel.java    → Dark navy sidebar navigation
@@ -267,31 +290,72 @@ package.bat
 
 ## 📸 Screenshots
 
-> Take screenshots of the running app and save them in the `screenshots/` folder.
-
+### Login Screen
 ![Login Screen](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/login.png)
-*Login screen — enter Customer ID and PIN*
+*Secure login with Customer ID and PIN — lockout protection after failed attempts*
 
+### Dashboard
 ![Dashboard](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/dashboard.png)
 *Dashboard — account balance, quick actions, recent transactions, chart*
 
+### Deposit / Withdraw
 ![Deposit/Withdraw](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/deposit_withdraw.png)
-*Deposit and Withdraw form with real-time balance*
+*Deposit and Withdraw form with real-time balance and receipt generation*
 
+### Fund Transfer
 ![Fund Transfer](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/transfer.png)
-*Fund transfer between accounts*
+*Deadlock-safe fund transfer between accounts*
 
+### Transaction History
 ![Transaction History](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/history.png)
-*Searchable, filterable transaction history table*
+*Searchable, filterable transaction history with Lambda/Stream expressions*
 
+### Loan Management
 ![Loans](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/loans.png)
-*Loan application form and status panel*
+*Loan application, EMI calculation, approval and disbursement pipeline*
 
+### Reports & Analytics
 ![Reports](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/reports.png)
-*Reports with TreeMap-sorted account balances and chart*
+*TreeMap-sorted account analytics with Java2D bar charts*
 
+### Settings — Themes & i18n
 ![Settings](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/settings.png)
-*Settings with Tabbed Interface for dynamic Font Scaling and Professional Themes (Neon, Navy Blue, Darker Black)*
+*Settings — Neon / Navy Blue / Darker Black themes, English / Hindi language toggle, dynamic font scaling*
+
+---
+
+## 🗺️ Knowledge Graph
+
+SecureBank's entire codebase has been indexed into an interactive **knowledge graph** — 1,164 nodes across 57 communities, connected by 3,167 edges extracted via static AST analysis.
+
+![SecureBank Knowledge Graph](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/knowledge_graph.png)
+*Force-directed knowledge graph — each color represents a code community (class cluster). Node size = number of connections. Generated with [Graphify](https://opengsd.dev).*
+
+### How to Explore the Graph
+
+**Option 1 — Interactive HTML (Recommended)**
+```bash
+# From the project root, start a local server
+cd .planning/graphs
+python -m http.server 8888
+# Then open: http://localhost:8888/graph_fancy.html
+```
+
+Features of the interactive viewer:
+- 🎨 **57 community colors** — each cluster glows with its own neon palette
+- 🔍 **Search** — jump to any class/method by name
+- 🏘️ **Community filter** — toggle visibility of entire packages
+- 📊 **Min connections slider** — focus on high-connectivity hubs
+- 🗺️ **Live minimap** — navigate the full graph from a birds-eye view
+- 🖱️ **Drag, zoom, pan** — D3.js physics simulation
+
+**Option 2 — Obsidian Vault**
+```bash
+# Export graph to interconnected Markdown files
+python export_obsidian.py
+# Then open the 'obsidian_graph/' folder as a vault in Obsidian
+# Go to Graph View to see your codebase as an Obsidian knowledge graph
+```
 
 ---
 
@@ -300,13 +364,15 @@ package.bat
 | # | Problem | Fix |
 |---|---------|-----|
 | 1 | **Port already in use** — `BindException: Address already in use` | Another instance is running. Kill it or use a different port: `java -jar securebank.jar 9090` |
-| 2 | **File not found on first run** | Normal — the `data/` directory is auto-created on first run. If it's deleted, restart the app. |
-| 3 | **GUI freezes** during operations | Socket calls are being made on the EDT instead of a SwingWorker. All network calls MUST be on background threads. |
-| 4 | **Race condition in balance** | Ensure `synchronized` keyword is on BOTH `deposit()` and `withdraw()` methods in `Account.java`. |
-| 5 | **Deadlock during transfers** | The `transferTo()` method uses lock ordering (locks by account number order) to prevent deadlocks. Never change the lock order. |
+| 2 | **File not found on first run** | Normal — the `data/` directory is auto-created on first run. |
+| 3 | **GUI freezes** during operations | Socket calls must be on a SwingWorker thread, not the EDT. |
+| 4 | **Race condition in balance** | Ensure `synchronized` is on BOTH `deposit()` and `withdraw()` in `Account.java`. |
+| 5 | **Deadlock during transfers** | The `transferTo()` method uses lock ordering (by account number) to prevent deadlocks. Never change the order. |
 | 6 | **Data lost after restart** | Ensure `saveToFile()` is called before shutdown. The shutdown hook in `Main.java` handles this automatically. |
-| 7 | **FlatLaf not loading** | The FlatLaf JAR must be on the classpath. Use the Maven shade plugin to build a fat JAR that includes it. |
-| 8 | **TransactionLogger not writing** | Check that the `data/` directory exists and is writable. The logger is a daemon thread — if the app exits too fast, some logs may be lost. |
+| 7 | **FlatLaf not loading** | Build with `mvn package` to create a fat JAR that bundles FlatLaf. |
+| 8 | **TransactionLogger not writing** | Check that the `data/` directory exists and is writable. |
+| 9 | **Language not switching** | Call `AppLanguage.setLanguage("hi")` and trigger `rebuildUI()` on all panels. |
+| 10 | **Theme not applying** | Ensure `ThemeManager.setTheme(Theme.NEON)` is called before `SwingUtilities.updateComponentTreeUI()`. |
 
 ---
 
@@ -323,38 +389,29 @@ Thread A withdraws ₹8,000 → sets balance = ₹2,000
 Thread B withdraws ₹8,000 → sets balance = ₹2,000  ← WRONG! Should be rejected!
 ```
 
-This is called a **race condition** — the result depends on the order threads execute. The `synchronized` keyword creates a **monitor lock** on the Account object, ensuring only ONE thread can execute `deposit()` or `withdraw()` at a time. Thread B must WAIT for Thread A to finish.
+The `synchronized` keyword creates a **monitor lock** on the Account object, ensuring only ONE thread executes `deposit()` or `withdraw()` at a time.
 
 ### Why TCP Sockets Were Chosen
 
-**TCP (Transmission Control Protocol)** guarantees three things critical for banking:
+**TCP** guarantees three things critical for banking:
 1. **Reliable delivery** — no data is lost (unlike UDP)
-2. **Ordered delivery** — messages arrive in the sequence they were sent
+2. **Ordered delivery** — messages arrive in sequence
 3. **Error detection** — corrupted data is retransmitted
-
-Imagine a deposit confirmation getting lost with UDP — the customer thinks their money was deposited, but it wasn't. TCP prevents this by requiring acknowledgments for every message.
 
 ### Why Generics (`Repository<T>`) Matter
 
-Without generics, we'd need separate repository classes for every entity type:
-- `AccountRepository` with `HashMap<String, Account>`
-- `CustomerRepository` with `HashMap<String, Customer>`
-- `LoanRepository` with `HashMap<String, Loan>`
-
-All with identical `add()`, `get()`, `update()`, `delete()` logic — code duplication!
-
-With `Repository<T>`, we write the logic ONCE and reuse it:
+With `Repository<T>`, we write the CRUD logic ONCE and reuse it:
 - `Repository<Account>` — type-safe, compiler prevents inserting a Customer
 - `Repository<Customer>` — same code, different type
 - `Repository<Loan>` — same code, different type
 
-Java implements this via **type erasure** — `<T>` is replaced with `Object` at compile time, and the compiler inserts casts automatically.
+### Why HashMap for i18n (`AppLanguage`)
+
+`HashMap<String, String>` provides **O(1) average-case lookup** for translation keys — far faster than iterating over arrays or properties files. Keys like `"sidebar.dashboard"` return `"Dashboard"` or `"डैशबोर्ड"` instantly.
 
 ---
 
 ## 🚀 Future Scope (v2 — Post-Exam)
-
-The following enhancements are planned for **v2**, to be built AFTER the current exam cycle:
 
 - **Spring Boot + REST API** — replace TCP sockets with RESTful endpoints
 - **Database** — migrate from file-based persistence to MySQL/PostgreSQL using JDBC or Hibernate
@@ -375,6 +432,8 @@ This project is developed for academic evaluation at NIET Greater Noida. All rig
 
 *Built with ❤️ for the OOP Using Java Capstone — NIET Greater Noida, Semester III*
 
+---
+
 <br><br>
 
 # 🏦 SecureBank: Comprehensive Examination & Viva Guide
@@ -393,18 +452,19 @@ SecureBank is designed for **Bank Tellers, Branch Managers, and Administrators**
 * Register and manage customers.
 * Process high-volume deposits, withdrawals, and fund transfers.
 * Approve and manage loans.
+* Manage saved payees (beneficiaries).
 * Generate transaction histories and visual reports.
 
 ### Key Professional Features
 * **Massive Concurrency:** Capable of handling dozens of customers simultaneously without data corruption, thanks to a strictly synchronized, thread-safe server architecture.
-* **Dynamic Professional Theming:** The application completely escapes the "basic college project" look. It features a state-of-the-art **FlatLaf** engine allowing real-time switching between professional themes: **Neon**, **Navy Blue**, and **Darker Black**, along with dynamic font scaling for accessibility.
+* **Dynamic Professional Theming:** Features a state-of-the-art **ThemeManager** engine allowing real-time switching between professional themes: **Neon**, **Navy Blue**, and **Darker Black**, along with dynamic font scaling for accessibility.
+* **Full Internationalization (i18n):** English and Hindi supported natively using a `HashMap`-backed `AppLanguage` class — switchable live from the Settings panel.
+* **Saved Payees:** A dedicated Beneficiaries panel to manage trusted payee accounts with server-side validation.
 * **Data Persistence:** A custom file I/O system that securely writes all transactional data to local `.dat` files.
 
 ---
 
 ## 2. Architecture & Folder Structure
-
-The project is structured using an enterprise-grade package layout. Here is how all the folders connect to each other to make the software work:
 
 ```mermaid
 graph TD
@@ -414,89 +474,86 @@ graph TD
     GUI --> Client[client/]
     Client --> Server
     
-    Server --> Repo[repository/]
+    Server --> Service[service/]
+    Service --> Repo[repository/]
     Repo --> Core[core/]
     Repo --> Utils[utils/]
     
     GUI --> Exceptions[exceptions/]
     GUI --> Loans[loans/]
+    GUI --> AppLanguage[AppLanguage i18n]
+    GUI --> ThemeManager[ThemeManager]
 ```
 
 ### Folder Breakdown
-* **`com.securebank.main`**: The entry point of the app. It initializes the theme engine, starts the server in the background, and launches the GUI.
-* **`com.securebank.core`**: Contains the blueprint of the bank. (e.g., `Customer`, `Account`, `SavingsAccount`).
-* **`com.securebank.gui`**: The beautiful frontend. Contains all the screens (`DashboardPanel`, `SettingsPanel`) and custom components (`SidebarPanel`, `StyledButton`).
-* **`com.securebank.server` & `client`**: The networking backbone. The Client sends requests via TCP Sockets, and the Server processes them on dedicated threads.
-* **`com.securebank.repository`**: The database layer. Uses Java Generics (`Repository<T>`) to store and retrieve data.
-* **`com.securebank.utils`**: Helper classes like `FileIOHelper` (for saving data) and `IDGenerator` (for generating sequential `CUSTOMER-1` IDs).
+* **`com.securebank.main`**: The entry point. Initializes the theme engine, starts the server, and launches the GUI.
+* **`com.securebank.core`**: The domain model (`Customer`, `Account`, `SavingsAccount`, `CurrentAccount`).
+* **`com.securebank.service`**: 🆕 Business logic layer (`BankService`) separating protocol handling from domain operations.
+* **`com.securebank.gui`**: The frontend. All screens + `ThemeManager` (design tokens) + `AppLanguage` (i18n).
+* **`com.securebank.server` & `client`**: The networking backbone. TCP socket server and client wrapper.
+* **`com.securebank.repository`**: The data layer. Generic `Repository<T>` for type-safe CRUD.
+* **`com.securebank.utils`**: `FileIOHelper`, `IDGenerator`, `ReceiptGenerator`.
 
 ---
 
 ## 3. Team Roles & Viva Assignments
 
-To ace the viva, the presentation is split into two halves: **The Technical Architecture** (handled by Divyansh) and **The Core OOP & Business Logic** (handled by the rest of the team).
-
 ### 👨‍💻 Divyansh — Technical Lead & System Architect
-*Divyansh handles all the complex coding terms, the architecture, and the heavy lifting. When the examiner asks "How does it work under the hood?", Divyansh steps in.*
-
-**Topics Divyansh Will Explain:**
-1. **Client-Server Architecture & Sockets:** Explain how `BankServer.java` opens a `ServerSocket` on port 8888, and how every time a new GUI instance opens, a `Socket` connects to it. Explain that they communicate using a custom string protocol (e.g., `DEPOSIT|ACC-001001|5000`).
-2. **Concurrency & Multithreading:** Explain that the server handles *hundreds* of customers at once by spawning a new `Thread` (via `ClientHandler`) for every user. 
-3. **The `synchronized` Keyword (CRITICAL):** Explain how we prevent race conditions. If two tellers try to withdraw from the same account at the exact same millisecond, the `synchronized` block acts as a lock, forcing one thread to wait for the other, ensuring the bank never loses track of money.
-4. **Generics (`Repository<T>`):** Explain how using `<T>` allowed the team to write the database code just once. Instead of writing separate code for Accounts and Customers, the system dynamically adapts to `Repository<Account>` and `Repository<Customer>`.
-5. **Professional GUI & FlatLaf:** Explain how the theme engine was built to swap UIManager properties dynamically, giving it a premium look unlike standard Swing apps.
+**Topics:**
+1. **Client-Server Architecture & Sockets** — `BankServer` + `ServerSocket`, custom TCP protocol
+2. **Concurrency & Multithreading** — per-client `ClientHandler` threads
+3. **The `synchronized` Keyword** — race condition prevention on `Account`
+4. **Generics (`Repository<T>`)** — write-once CRUD reused across all entity types
+5. **ThemeManager & FlatLaf** — dynamic `UIManager` property swapping
+6. **AppLanguage (i18n)** — `HashMap`-backed translation lookup, O(1) performance
+7. **Knowledge Graph** — codebase visualized as 1,164-node interactive graph
 
 ### 👥 The Rest of the Team — Business Logic & OOP Fundamentals
-*The rest of the team will focus on explaining the foundational Object-Oriented concepts. This shows the examiner that the whole team understands the core syllabus.*
-
-**Topics The Team Will Explain:**
-1. **Classes and Objects:** Explain how `Customer.java` is a class (a blueprint), and when we log in as `CUSTOMER-1`, we are interacting with a specific *Object* in memory.
-2. **Inheritance & Polymorphism:** 
-   * **Inheritance:** Show how `SavingsAccount` and `CurrentAccount` inherit from the abstract `Account` class. This avoids rewriting the balance and deposit logic.
-   * **Polymorphism:** Explain how the `calculateInterest()` method behaves differently depending on whether the object is a Savings Account (4% interest) or a Current Account (1% interest).
-3. **Encapsulation:** Explain how account balances are set to `private`. You cannot directly change a balance; you must use the `deposit()` or `withdraw()` methods, which validate the math first.
-4. **Exception Handling:** Walk through custom exceptions like `InsufficientBalanceException`. Explain how the code uses `try/catch` blocks so that if a user tries to withdraw more than they have, the app gracefully shows a toast notification instead of crashing.
-5. **Target Audience & Features:** Present the target users and walk the examiner through the user manual.
+**Topics:**
+1. **Classes and Objects** — `Customer.java` as blueprint, instances in memory
+2. **Inheritance & Polymorphism** — `SavingsAccount`/`CurrentAccount` → `Account`; `calculateInterest()` polymorphism
+3. **Encapsulation** — `private` balances, `deposit()`/`withdraw()` as controlled mutators
+4. **Exception Handling** — `InsufficientBalanceException`, `InvalidPinException` with try/catch toast feedback
+5. **Beneficiaries & Fund Transfers** — saved payee management flow
+6. **Feature Walkthrough** — demonstrate all panels to the examiner
 
 ---
 
 ## 4. Feature Walkthrough & Screenshots
 
-During the presentation, show the examiner these core screens to highlight the professional nature of the project.
-
 ### The Login Screen
-The entry point of the app, ensuring secure access.
+Secure entry with Customer ID + PIN, plus lockout protection after repeated failures.
 ![Login Screen](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/login.png)
 
 ### The Dashboard
-A centralized hub showing the account overview, quick actions, and recent transaction history.
+Centralized hub: account overview, quick actions, recent transactions.
 ![Dashboard](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/dashboard.png)
 
 ### Dynamic Settings & Theming
-The professional settings area utilizing a clean Tabbed interface where the user can swap between **Neon**, **Navy Blue**, and **Darker Black**.
+Real-time theme switching (Neon / Navy Blue / Darker Black) + English/Hindi language toggle + font scaling.
 > *Examiner Note: Emphasize that most Java Swing projects look outdated. This project uses dynamic look-and-feel updates to rival modern web applications.*
 ![Settings](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/settings.png)
 
 ### Fund Transfers (Deadlock-Safe)
-The transfer panel. *Divyansh can mention here how lock-ordering prevents deadlocks when two accounts transfer to each other simultaneously.*
+Lock-ordering prevents deadlocks when two accounts transfer to each other simultaneously.
 ![Fund Transfer](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/transfer.png)
 
 ### Transaction History & Reports
-Shows the integration of Java Collections (like `TreeMap`) to sort and filter large amounts of transactional data efficiently.
+Java Collections (`TreeMap`, `Stream`) to sort and filter large transaction datasets.
 ![Reports](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/reports.png)
+
+### Knowledge Graph Visualization
+The full codebase mapped as an interactive force-directed graph.
+![Knowledge Graph](https://raw.githubusercontent.com/Divyansh-Kashiv07/SecureBank/main/SecureBank/screenshots/knowledge_graph.png)
 
 ---
 
 ## 5. Quick Test & Demo Guide (For Examiners)
 
-To quickly evaluate the software during the viva, please follow these steps to log in as a pre-configured customer:
-
-1. **Launch the Application**: Extract `SecureBank-Release.zip` and run `SecureBank.exe`, or start the program via your IDE.
-2. **Enter Customer ID**: Type `CUSTOMER-1` into the Customer ID field.
-3. **Enter PIN**: Type `1234` into the PIN field.
-4. **Click Login**: You will instantly be authenticated and routed to the secure dashboard.
-
-**Available Demo Accounts for Testing:**
+1. **Launch the Application**: Run `SecureBank.exe` or start via IDE.
+2. **Enter Customer ID**: `CUSTOMER-1`
+3. **Enter PIN**: `1234`
+4. **Click Login**: Authenticated instantly → routed to the secure dashboard.
 
 | Customer ID | PIN  | Owner Name       | Notes                                      |
 |-------------|------|------------------|--------------------------------------------|
