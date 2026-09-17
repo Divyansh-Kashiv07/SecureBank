@@ -5,23 +5,22 @@ import com.securebank.gui.ThemeManager;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
 
 /**
- * CardPanel — a rounded-corner card component for the dashboard and other panels.
+ * CardPanel — a production-grade rounded-corner card component.
  *
- * This is a reusable JPanel that draws itself with:
- * - Rounded corners (12px radius)
- * - Dark background with subtle border glow
- * - Optional title header
- * - Generous padding
- *
- * Used throughout the app for grouping related content into visual "cards"
- * (similar to Material Design cards).
+ * Features:
+ * - Glass-effect background
+ * - Smooth drop shadow
+ * - Accent gradient bar at top
+ * - Anti-aliased rendering
+ * - Configurable glass intensity
  */
 public class CardPanel extends JPanel {
 
-    /** Corner radius for the rounded rectangle */
-    private static final int CORNER_RADIUS = 12;
+    /** Corner radius */
+    private static final int CORNER_RADIUS = 14;
 
     /** Card background color */
     private Color cardBackground = ThemeManager.getCardColor();
@@ -32,19 +31,23 @@ public class CardPanel extends JPanel {
     /** Optional accent bar color at the top of the card */
     private Color accentColor = null;
 
+    /** Whether to use glass effect */
+    private boolean useGlassEffect = true;
+
+    /** Shadow intensity (0..1) */
+    private float shadowIntensity = 0.5f;
+
     /**
      * Creates a card panel with no title.
      */
     public CardPanel() {
-        setOpaque(false); // We'll paint our own background with rounded corners
+        setOpaque(false);
         setLayout(new BorderLayout());
-        setBorder(new EmptyBorder(16, 20, 16, 20)); // Generous internal padding
+        setBorder(new EmptyBorder(18, 22, 18, 22));
     }
 
     /**
      * Creates a card panel with a title.
-     *
-     * @param title the title to display at the top of the card
      */
     public CardPanel(String title) {
         this();
@@ -52,7 +55,7 @@ public class CardPanel extends JPanel {
         if (title != null && !title.isEmpty()) {
             JLabel titleLabel = new JLabel(title);
             titleLabel.setFont(ThemeManager.getBoldFont(15));
-            titleLabel.setForeground(ThemeManager.getTextLightColor()); // Light text for dark theme
+            titleLabel.setForeground(ThemeManager.getTextLightColor());
             titleLabel.setBorder(new EmptyBorder(0, 0, 12, 0));
             add(titleLabel, BorderLayout.NORTH);
         }
@@ -60,9 +63,6 @@ public class CardPanel extends JPanel {
 
     /**
      * Creates a card panel with a title and an accent color bar.
-     *
-     * @param title       the title
-     * @param accentColor the color of the accent bar at the top
      */
     public CardPanel(String title, Color accentColor) {
         this(title);
@@ -86,37 +86,59 @@ public class CardPanel extends JPanel {
     }
 
     /**
-     * Custom paint — draws rounded rectangle background with dark border and optional accent bar.
+     * Enables or disables the glass effect.
+     */
+    public void setUseGlassEffect(boolean use) {
+        this.useGlassEffect = use;
+        repaint();
+    }
+
+    /**
+     * Custom paint — draws glass card with shadow and accent bar.
      */
     @Override
     protected void paintComponent(Graphics g) {
-        Graphics2D g2d = (Graphics2D) g.create();
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Enable anti-aliasing for smooth rounded corners
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        int w = getWidth() - 4;
+        int h = getHeight() - 4;
 
-        // Draw subtle glow/shadow (dark mode compatible)
-        g2d.setColor(new Color(0, 0, 0, 40));
-        g2d.fillRoundRect(3, 3, getWidth() - 4, getHeight() - 4, CORNER_RADIUS, CORNER_RADIUS);
+        // Draw shadow
+        ThemeManager.drawShadow(g2, 4, 4, w, h, CORNER_RADIUS);
 
-        // Draw main card background
-        g2d.setColor(cardBackground);
-        g2d.fillRoundRect(0, 0, getWidth() - 4, getHeight() - 4, CORNER_RADIUS, CORNER_RADIUS);
+        // Draw main card
+        if (useGlassEffect) {
+            // Glass background
+            g2.setColor(ThemeManager.getGlassColor());
+            g2.fill(new RoundRectangle2D.Float(0, 0, w, h, CORNER_RADIUS, CORNER_RADIUS));
 
-        // Draw dark border
-        g2d.setColor(borderColor);
-        g2d.setStroke(new BasicStroke(1.0f));
-        g2d.drawRoundRect(0, 0, getWidth() - 5, getHeight() - 5, CORNER_RADIUS, CORNER_RADIUS);
-
-        // Draw accent bar at the top if color is set
-        if (accentColor != null) {
-            g2d.setColor(accentColor);
-            g2d.fillRoundRect(0, 0, getWidth() - 4, 4, CORNER_RADIUS, CORNER_RADIUS);
-            // Fill the bottom part of the accent to make it flat
-            g2d.fillRect(0, 2, getWidth() - 4, 2);
+            // Top highlight
+            g2.setColor(new Color(255, 255, 255, 10));
+            g2.fill(new RoundRectangle2D.Float(1, 1, w - 2, h / 3, CORNER_RADIUS, CORNER_RADIUS));
+        } else {
+            g2.setColor(cardBackground);
+            g2.fill(new RoundRectangle2D.Float(0, 0, w, h, CORNER_RADIUS, CORNER_RADIUS));
         }
 
-        g2d.dispose();
+        // Draw border
+        g2.setColor(ThemeManager.getGlassBorder());
+        g2.setStroke(new BasicStroke(1.0f));
+        g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, CORNER_RADIUS, CORNER_RADIUS));
+
+        // Draw accent bar at top if color is set
+        if (accentColor != null) {
+            g2.setClip(new RoundRectangle2D.Float(0, 0, w, h, CORNER_RADIUS, CORNER_RADIUS));
+            GradientPaint gradient = new GradientPaint(
+                    0, 0, ThemeManager.lighten(accentColor, 0.1f),
+                    w, 0, accentColor);
+            g2.setPaint(gradient);
+            g2.fillRoundRect(0, 0, w, 4, CORNER_RADIUS, CORNER_RADIUS);
+            g2.fillRect(0, 2, w, 2);
+            g2.setClip(null);
+        }
+
+        g2.dispose();
         super.paintComponent(g);
     }
 }

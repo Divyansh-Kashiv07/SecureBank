@@ -11,11 +11,9 @@ import java.awt.*;
  * DepositWithdrawPanel — form for depositing and withdrawing money.
  *
  * Features:
- * - Account selector dropdown
- * - Amount input with validation
- * - Optional remarks field (for deposit)
- * - Toggle between Deposit and Withdraw modes
- * - Loading state during server communication
+ * - Polished form with glass card effect
+ * - Account selector with live balance display
+ * - Dual action buttons (Deposit/Withdraw)
  */
 public class DepositWithdrawPanel extends JPanel {
 
@@ -31,8 +29,6 @@ public class DepositWithdrawPanel extends JPanel {
     private StyledButton withdrawButton;
     private JLabel currentBalanceLabel;
 
-
-
     public DepositWithdrawPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
         setLayout(new GridBagLayout());
@@ -44,7 +40,8 @@ public class DepositWithdrawPanel extends JPanel {
         removeAll();
         setBackground(ThemeManager.getBackgroundColor());
 
-        CardPanel formCard = new CardPanel(AppLanguage.get("dw.title"));
+        CardPanel formCard = new CardPanel(AppLanguage.get("dw.title"),
+                ThemeManager.getSuccessColor());
         formCard.setPreferredSize(new Dimension(480, 500));
         formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
         formCard.setBorder(new EmptyBorder(20, 35, 20, 35));
@@ -90,7 +87,7 @@ public class DepositWithdrawPanel extends JPanel {
         formCard.add(amountField);
         formCard.add(Box.createVerticalStrut(15));
 
-        // Remarks field (for deposit)
+        // Remarks field
         JLabel remarksLabel = new JLabel(AppLanguage.get("dw.remarks"));
         remarksLabel.setFont(ThemeManager.getFont(13));
         remarksLabel.setForeground(ThemeManager.getTextMutedColor());
@@ -130,7 +127,7 @@ public class DepositWithdrawPanel extends JPanel {
     private void handleDeposit() {
         String account = getSelectedAccount();
         if (account == null) return;
-        
+
         double amount = getAmount();
         if (amount <= 0) return;
 
@@ -150,7 +147,8 @@ public class DepositWithdrawPanel extends JPanel {
                     String response = get();
                     handleResponse(response, AppLanguage.get("dashboard.deposit"));
                 } catch (Exception e) {
-                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.error") + ": " + e.getMessage());
+                    NotificationPanel.showError(parentFrame,
+                            AppLanguage.get("common.error") + ": " + e.getMessage());
                 }
             }
         }.execute();
@@ -159,7 +157,7 @@ public class DepositWithdrawPanel extends JPanel {
     private void handleWithdraw() {
         String account = getSelectedAccount();
         if (account == null) return;
-        
+
         double amount = getAmount();
         if (amount <= 0) return;
 
@@ -178,7 +176,8 @@ public class DepositWithdrawPanel extends JPanel {
                     String response = get();
                     handleResponse(response, AppLanguage.get("dashboard.withdraw"));
                 } catch (Exception e) {
-                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.error") + ": " + e.getMessage());
+                    NotificationPanel.showError(parentFrame,
+                            AppLanguage.get("common.error") + ": " + e.getMessage());
                 }
             }
         }.execute();
@@ -190,8 +189,6 @@ public class DepositWithdrawPanel extends JPanel {
             return;
         }
         if (response.startsWith("OK|")) {
-            String[] parts = response.substring(3).split("\\|");
-            String newBalance = parts.length > 0 ? parts[0] : "N/A";
             NotificationPanel.showSuccess(parentFrame, AppLanguage.get("dw.success"));
             amountField.clearField();
             remarksField.clearField();

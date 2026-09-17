@@ -27,8 +27,24 @@ public class AppLanguage {
     private static final Map<String, String> HI = new HashMap<>();
 
     // ==================== STATIC INITIALIZER ====================
+
     static {
         // ---- App-level ----
+        EN.put("bene.title", "👥 Saved Payees");
+        HI.put("bene.title", "👥 सहेजे गए लाभार्थी");
+
+        EN.put("bene.your.payees", "Your Payees");
+        HI.put("bene.your.payees", "आपके लाभार्थी");
+
+        EN.put("bene.add.title", "Save a new payee");
+        HI.put("bene.add.title", "नया लाभार्थी सहेजें");
+
+        EN.put("bene.name", "Payee name");
+        HI.put("bene.name", "लाभार्थी का नाम");
+
+        EN.put("bene.account", "Account number");
+        HI.put("bene.account", "खाता संख्या");
+
         EN.put("app.title", "HSBC Bank — Premier Banking System");
         HI.put("app.title", "HSBC बैंक — प्रीमियर बैंकिंग सिस्टम");
 
@@ -85,6 +101,9 @@ public class AppLanguage {
         EN.put("sidebar.accounts", "Accounts");
         HI.put("sidebar.accounts", "खाते");
 
+        EN.put("sidebar.payees", "Saved Payees");
+        HI.put("sidebar.payees", "सहेजे लाभार्थी");
+
         EN.put("sidebar.deposit.withdraw", "Deposit / Withdraw");
         HI.put("sidebar.deposit.withdraw", "जमा / निकासी");
 
@@ -105,6 +124,30 @@ public class AppLanguage {
 
         EN.put("sidebar.logout", "Logout");
         HI.put("sidebar.logout", "लॉगआउट");
+
+        EN.put("bene.bank", "Bank name (optional)");
+        HI.put("bene.bank", "बैंक का नाम (वैकल्पिक)");
+
+        EN.put("bene.nickname", "Nickname (optional)");
+        HI.put("bene.nickname", "उपनाम (वैकल्पिक)");
+
+        EN.put("bene.add.button", "＋ Save Payee");
+        HI.put("bene.add.button", "＋ लाभार्थी सहेजें");
+
+        EN.put("bene.remove", "Remove");
+        HI.put("bene.remove", "हटाएं");
+
+        EN.put("bene.none", "No saved payees yet — add one above.");
+        HI.put("bene.none", "अभी कोई लाभार्थी नहीं — ऊपर से जोड़ें।");
+
+        EN.put("bene.required", "Payee name and account number are required");
+        HI.put("bene.required", "लाभार्थी का नाम और खाता संख्या आवश्यक है");
+
+        EN.put("bene.added", "Payee saved successfully!");
+        HI.put("bene.added", "लाभार्थी सफलतापूर्वक सहेजा गया!");
+
+        EN.put("bene.removed", "Payee {name} removed.");
+        HI.put("bene.removed", "लाभार्थी {name} हटाया गया।");
 
         // ---- Dashboard ----
         EN.put("dashboard.greeting.morning", "Good Morning");

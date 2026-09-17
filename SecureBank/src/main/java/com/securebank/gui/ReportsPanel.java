@@ -2,18 +2,19 @@ package com.securebank.gui;
 
 import com.securebank.client.BankClient;
 import com.securebank.gui.components.*;
+import com.securebank.gui.ThemeManager;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
 
 /**
- * ReportsPanel — analytics and report views using TreeMap for sorted data.
- *
- * RUBRIC: Unit 5 — TreeMap for sorted reports (by balance).
+ * ReportsPanel — analytics and report views with polished styling.
  */
 public class ReportsPanel extends JPanel {
 
@@ -24,8 +25,6 @@ public class ReportsPanel extends JPanel {
     private MiniChart balanceChart;
     private JTable reportTable;
     private DefaultTableModel tableModel;
-
-
 
     public ReportsPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
@@ -68,20 +67,56 @@ public class ReportsPanel extends JPanel {
 
         reportTable = new JTable(tableModel);
         reportTable.setFont(ThemeManager.getFont(13));
-        reportTable.setRowHeight(28);
-        reportTable.getTableHeader().setFont(ThemeManager.getBoldFont(13));
-        reportTable.getTableHeader().setBackground(ThemeManager.getBackgroundColor());
-        reportTable.getTableHeader().setForeground(ThemeManager.getTextLightColor());
-        reportTable.setGridColor(ThemeManager.getBorderColor());
-        reportTable.setForeground(ThemeManager.getTextLightColor());
-        reportTable.setBackground(ThemeManager.getCardColor());
+        reportTable.setRowHeight(36);
+        reportTable.setSelectionBackground(ThemeManager.getTableSelectionBackground());
+        reportTable.setSelectionForeground(ThemeManager.getTableSelectionForeground());
+        reportTable.setGridColor(ThemeManager.getTableGridColor());
+        reportTable.setShowHorizontalLines(true);
+        reportTable.setShowVerticalLines(false);
+        reportTable.setIntercellSpacing(new Dimension(0, 1));
+
+        // Custom header
+        JTableHeader tableHeader = reportTable.getTableHeader();
+        tableHeader.setFont(ThemeManager.getBoldFont(12));
+        tableHeader.setBackground(ThemeManager.getTableHeaderBackground());
+        tableHeader.setForeground(ThemeManager.getTableHeaderForeground());
+        tableHeader.setPreferredSize(new Dimension(0, 40));
+        tableHeader.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0,
+                ThemeManager.getPrimaryAccentColor()));
+
+        // Alternating row colors
+        reportTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                    boolean isSelected, boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value,
+                        isSelected, hasFocus, row, column);
+
+                if (!isSelected) {
+                    setBackground(row % 2 == 0 ?
+                            ThemeManager.getTableRowEven() : ThemeManager.getTableRowOdd());
+                }
+
+                setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+                setForeground(ThemeManager.getTextLightColor());
+
+                // Balance column (2) - color code
+                if (column == 2) {
+                    setFont(ThemeManager.getBoldFont(13));
+                    setForeground(ThemeManager.getPrimaryAccentColor());
+                }
+
+                return c;
+            }
+        });
 
         JScrollPane scrollPane = new JScrollPane(reportTable);
         scrollPane.setBorder(null);
         scrollPane.getViewport().setBackground(ThemeManager.getCardColor());
         tableCard.add(scrollPane, BorderLayout.CENTER);
 
-        StyledButton refreshBtn = new StyledButton(AppLanguage.get("reports.refresh"), StyledButton.ACCENT_TEAL);
+        StyledButton refreshBtn = new StyledButton(AppLanguage.get("reports.refresh"),
+                ThemeManager.getPrimaryAccentColor());
         refreshBtn.setPreferredSize(new Dimension(150, 35));
         refreshBtn.addActionListener(e -> loadReport());
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -98,14 +133,11 @@ public class ReportsPanel extends JPanel {
 
     /**
      * Loads report data and sorts using TreeMap.
-     *
-     * RUBRIC: Unit 5 — TreeMap for sorted reports (by balance).
      */
     public void loadReport() {
         if (client == null || !client.isConnected() || accountNumbers == null) return;
 
         new SwingWorker<Void, Void>() {
-            // RUBRIC: TreeMap — sorts accounts by balance (descending)
             TreeMap<Double, String[]> sortedByBalance = new TreeMap<>(Collections.reverseOrder());
             List<String> accNames = new ArrayList<>();
             List<Double> accBalances = new ArrayList<>();
@@ -118,7 +150,6 @@ public class ReportsPanel extends JPanel {
                         String[] parts = resp.substring(3).split("\\|");
                         if (parts.length >= 3) {
                             double balance = Double.parseDouble(parts[2]);
-                            // TreeMap key is balance (for sorting)
                             double key = balance + (Math.random() * 0.001);
                             sortedByBalance.put(key, new String[]{accNum, parts[1], parts[2]});
                             accNames.add(accNum.substring(accNum.length() - 4));

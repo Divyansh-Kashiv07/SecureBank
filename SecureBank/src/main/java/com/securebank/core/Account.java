@@ -1,5 +1,6 @@
 package com.securebank.core;
 
+import com.securebank.exceptions.AccountInactiveException;
 import com.securebank.exceptions.DailyLimitExceededException;
 import com.securebank.exceptions.InsufficientBalanceException;
 import com.securebank.transactions.Transaction;
@@ -129,27 +130,8 @@ public abstract class Account implements Transferable {
      * @param amount the amount to deposit (must be positive)
      * @return the new balance after deposit
      */
-    public synchronized double deposit(double amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("Deposit amount must be positive. Got: " + amount);
-        }
-
-        // Update balance atomically (protected by synchronized)
-        this.balance += amount;
-
-        // Record the transaction — Composition: transaction belongs to this account
-        Transaction txn = new Transaction(
-                IDGenerator.generateTransactionId(),
-                this.accountNumber,
-                TransactionType.DEPOSIT,
-                amount,
-                this.balance,
-                LocalDateTime.now(),
-                ""
-        );
-        this.transactionHistory.add(txn);
-
-        return this.balance;
+    public synchronized double deposit(double amount) throws AccountInactiveException {
+        return deposit(amount, "");
     }
 
     /**
@@ -163,9 +145,29 @@ public abstract class Account implements Transferable {
      * @param remarks description of the deposit (e.g., "Salary credit")
      * @return the new balance after deposit
      */
-    public synchronized double deposit(double amount, String remarks) {
+    public synchronized double deposit(double amount, String remarks)
+            throws AccountInactiveException {
+        return deposit(amount, remarks, TransactionType.DEPOSIT);
+    }
+
+    /**
+     * Deposits money with remarks and an explicit transaction type.
+     * Used by the loan subsystem to record disbursements as LOAN_DISBURSEMENT
+     * instead of a plain DEPOSIT.
+     *
+     * @param amount  the amount to deposit
+     * @param remarks description of the deposit (sanitized before storage)
+     * @param type    the transaction type to record (DEPOSIT or LOAN_DISBURSEMENT)
+     * @return the new balance after deposit
+     * @throws AccountInactiveException if the account is frozen
+     */
+    public synchronized double deposit(double amount, String remarks, TransactionType type)
+            throws AccountInactiveException {
         if (amount <= 0) {
             throw new IllegalArgumentException("Deposit amount must be positive. Got: " + amount);
+        }
+        if (!active) {
+            throw new AccountInactiveException(accountNumber);
         }
 
         this.balance += amount;
@@ -173,11 +175,11 @@ public abstract class Account implements Transferable {
         Transaction txn = new Transaction(
                 IDGenerator.generateTransactionId(),
                 this.accountNumber,
-                TransactionType.DEPOSIT,
+                type,
                 amount,
                 this.balance,
                 LocalDateTime.now(),
-                remarks
+                sanitizeRemarks(remarks)
         );
         this.transactionHistory.add(txn);
 
@@ -203,24 +205,19 @@ public abstract class Account implements Transferable {
      * @throws DailyLimitExceededException  if daily limit would be exceeded
      */
     public synchronized double withdraw(double amount)
-            throws InsufficientBalanceException, DailyLimitExceededException {
+            throws InsufficientBalanceException, DailyLimitExceededException,
+            AccountInactiveException {
 
         if (amount <= 0) {
             throw new IllegalArgumentException("Withdrawal amount must be positive. Got: " + amount);
         }
-
-        // Reset daily counter if it's a new day
-        resetDailyLimitIfNewDay();
-
-        // Check daily limit FIRST (before balance check)
-        if (todayWithdrawnTotal + amount > dailyLimit) {
-            throw new DailyLimitExceededException(dailyLimit, todayWithdrawnTotal, amount);
+        if (!active) {
+            throw new AccountInactiveException(accountNumber);
         }
 
-        // Check sufficient balance
-        if (amount > balance) {
-            throw new InsufficientBalanceException(amount, balance);
-        }
+        // Shared validation: daily limit, available balance (incl. overdraft),
+        // and minimum-balance rules — same rules the transfer path enforces
+        validateWithdrawal(amount);
 
         // Execute withdrawal — we're inside synchronized, so this is atomic
         this.balance -= amount;
@@ -264,7 +261,8 @@ public abstract class Account implements Transferable {
      */
     @Override
     public void transferTo(Account target, double amount)
-            throws InsufficientBalanceException, DailyLimitExceededException {
+            throws InsufficientBalanceException, DailyLimitExceededException,
+            AccountInactiveException {
 
         if (target == null) {
             throw new IllegalArgumentException("Target account cannot be null");
@@ -274,6 +272,12 @@ public abstract class Account implements Transferable {
         }
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
+        }
+        if (!this.active) {
+            throw new AccountInactiveException(this.accountNumber);
+        }
+        if (!target.active) {
+            throw new AccountInactiveException(target.accountNumber);
         }
 
         // Determine lock ordering to prevent deadlock
@@ -289,20 +293,11 @@ public abstract class Account implements Transferable {
         // Acquire locks in consistent order
         synchronized (firstLock) {
             synchronized (secondLock) {
-                // Reset daily counter if new day
-                this.resetDailyLimitIfNewDay();
+                    // Shared validation: daily limit, available balance (incl. overdraft),
+                    // and minimum-balance rules — identical to the withdraw() path
+                    this.validateWithdrawal(amount);
 
-                // Check daily limit
-                if (this.todayWithdrawnTotal + amount > this.dailyLimit) {
-                    throw new DailyLimitExceededException(dailyLimit, todayWithdrawnTotal, amount);
-                }
-
-                // Check balance
-                if (amount > this.balance) {
-                    throw new InsufficientBalanceException(amount, this.balance);
-                }
-
-                // Execute transfer — debit source
+                    // Execute transfer — debit source
                 this.balance -= amount;
                 this.todayWithdrawnTotal += amount;
 
@@ -337,6 +332,61 @@ public abstract class Account implements Transferable {
     }
 
     // ==================== HELPER METHODS ====================
+
+    /**
+     * Shared withdrawal validation used by BOTH withdraw() and transferTo():
+     * 1. Daily limit (resetting the counter first if it's a new day)
+     * 2. Available balance — CurrentAccounts may draw into their overdraft limit
+     * 3. Minimum balance — SavingsAccounts must keep at least ₹1,000 in the account
+     *
+     * Must be called while holding this account's monitor.
+     */
+    private void validateWithdrawal(double amount)
+            throws InsufficientBalanceException, DailyLimitExceededException {
+        // Reset daily counter if it's a new day
+        resetDailyLimitIfNewDay();
+
+        // Check daily limit FIRST (before balance checks)
+        if (todayWithdrawnTotal + amount > dailyLimit) {
+            throw new DailyLimitExceededException(dailyLimit, todayWithdrawnTotal, amount);
+        }
+
+        // Available balance: CurrentAccounts can go negative up to the overdraft limit
+        double available = (this instanceof CurrentAccount)
+                ? balance + ((CurrentAccount) this).getOverdraftLimit()
+                : balance;
+        if (amount > available) {
+            throw new InsufficientBalanceException(amount, balance);
+        }
+
+        // Minimum balance: SavingsAccounts must retain their minimum balance
+        if (this instanceof SavingsAccount) {
+            double minBalance = ((SavingsAccount) this).getMinimumBalance();
+            if (balance - amount < minBalance) {
+                throw new InsufficientBalanceException(
+                        String.format(
+                                "Minimum balance of ₹%.2f must be maintained. Attempted: ₹%.2f, Balance: ₹%.2f",
+                                minBalance, amount, balance),
+                        amount, balance);
+            }
+        }
+    }
+
+    /**
+     * Sanitizes free-text remarks before they enter the pipe-delimited file format:
+     * pipes are stripped (they would corrupt the record structure on reload) and
+     * the text is capped at 120 characters.
+     */
+    static String sanitizeRemarks(String remarks) {
+        if (remarks == null) {
+            return "";
+        }
+        String cleaned = remarks.replace("|", "/");
+        if (cleaned.length() > 120) {
+            cleaned = cleaned.substring(0, 120);
+        }
+        return cleaned;
+    }
 
     /**
      * Resets the daily withdrawal counter if the date has changed.
@@ -385,6 +435,11 @@ public abstract class Account implements Transferable {
         sb.append(getAccountType()).append("|");
         sb.append(String.format("%.2f", dailyLimit)).append("|");
         sb.append(active);
+        // Field 8 (optional, for CurrentAccount): overdraft limit. Older data files
+        // without this field load with the default limit.
+        if (this instanceof CurrentAccount) {
+            sb.append("|").append(String.format("%.2f", ((CurrentAccount) this).getOverdraftLimit()));
+        }
         return sb.toString();
     }
 

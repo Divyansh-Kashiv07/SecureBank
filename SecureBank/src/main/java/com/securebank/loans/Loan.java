@@ -66,6 +66,17 @@ public class Loan {
      */
     public Loan(String loanId, String customerId, String accountNumber,
                 double amount, double interestRate, int tenureMonths, String purpose) {
+        this(loanId, customerId, accountNumber, amount, interestRate, tenureMonths,
+                purpose, LocalDateTime.now());
+    }
+
+    /**
+     * Full-state constructor — used by file loading to restore the ORIGINAL
+     * application timestamp instead of re-stamping the loan at load time.
+     */
+    public Loan(String loanId, String customerId, String accountNumber,
+                double amount, double interestRate, int tenureMonths, String purpose,
+                LocalDateTime appliedAt) {
         this.loanId = loanId;
         this.customerId = customerId;
         this.accountNumber = accountNumber;
@@ -74,7 +85,7 @@ public class Loan {
         this.tenureMonths = tenureMonths;
         this.purpose = purpose;
         this.status = LoanStatus.PENDING;
-        this.appliedAt = LocalDateTime.now();
+        this.appliedAt = appliedAt;
         this.amountRepaid = 0;
 
         // Calculate EMI and total repayable amount
@@ -168,7 +179,8 @@ public class Loan {
                     Double.parseDouble(parts[3]),   // amount
                     Double.parseDouble(parts[4]),   // interestRate
                     Integer.parseInt(parts[5]),      // tenureMonths
-                    parts.length > 11 ? parts[11] : ""  // purpose
+                    parts.length > 11 ? parts[11] : "",  // purpose
+                    LocalDateTime.parse(parts[10], DATE_FORMAT) // original appliedAt
             );
 
             // Restore calculated/saved fields

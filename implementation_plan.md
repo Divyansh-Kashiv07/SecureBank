@@ -1,5 +1,10 @@
 # SecureBank — Cooperative Banking Management System
 
+> **STATUS (2026-09-10):** Historical build plan — preserved as a point-in-time
+> record of how the project was created. The authoritative package layout is
+> `src/main/java/com/securebank/**` as it exists in the repository; see the root
+> `README.md` and `SecureBank/docs/adr/ADR-001-documentation-authority.md`.
+
 A full-stack Core Java (Swing + TCP Sockets) capstone project for the OOP Using Java course at NIET. This plan covers every mandatory rubric requirement, the UI/UX approach, build/packaging, and phased delivery order.
 
 ---

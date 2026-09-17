@@ -1,5 +1,6 @@
 package com.securebank.core;
 
+import com.securebank.exceptions.AccountInactiveException;
 import com.securebank.exceptions.InsufficientBalanceException;
 import com.securebank.exceptions.DailyLimitExceededException;
 
@@ -22,7 +23,9 @@ public interface Transferable {
      * @param amount the amount to transfer (must be positive)
      * @throws InsufficientBalanceException if this account doesn't have enough balance
      * @throws DailyLimitExceededException  if the daily transfer limit has been exceeded
+     * @throws AccountInactiveException     if either account is frozen/inactive
      */
     void transferTo(Account target, double amount)
-            throws InsufficientBalanceException, DailyLimitExceededException;
+            throws InsufficientBalanceException, DailyLimitExceededException,
+            AccountInactiveException;
 }

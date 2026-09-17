@@ -92,8 +92,10 @@ public class CustomerRepository {
 
     /**
      * Saves all customers to a file.
+     *
+     * @throws java.io.IOException if persistence fails — callers must handle this
      */
-    public void saveToFile() {
+    public void saveToFile() throws java.io.IOException {
         FileIOHelper.saveCustomers(repository.getAll());
     }
 

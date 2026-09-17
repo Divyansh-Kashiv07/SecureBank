@@ -1,5 +1,10 @@
 # 🏦 SecureBank (HSBC Edition) — Project Architecture & OOP Mapping
 
+> **STATUS (2026-09-10):** Historical artifact — this report describes an early
+> "HSBC edition" layout (a `models/` package that does not exist in the code).
+> For the authoritative structure see `src/main/java/com/securebank/**` and
+> `SecureBank/docs/adr/ADR-001-documentation-authority.md`.
+
 This document is designed for project evaluation. It outlines the **File Explorer Architecture**, details the **Core Java OOP Principles** applied in this Capstone Project, and maps exactly how many classes and objects are utilized within the system.
 
 ---

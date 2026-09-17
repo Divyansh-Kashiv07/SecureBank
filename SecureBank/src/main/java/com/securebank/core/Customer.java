@@ -1,5 +1,7 @@
 package com.securebank.core;
 
+import com.securebank.utils.PasswordHasher;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -73,13 +75,15 @@ public class Customer {
     }
 
     /**
-     * Validates the provided PIN against the stored PIN.
+     * Validates the provided PIN against the stored value.
+     * SECURITY (Phase 3): delegates to PasswordHasher.verify, which handles
+     * both salted PBKDF2 hashes (current format) and legacy plaintext records.
      *
      * @param inputPin the PIN to validate
      * @return true if the PIN matches, false otherwise
      */
     public boolean validatePin(String inputPin) {
-        return this.pin != null && this.pin.equals(inputPin);
+        return PasswordHasher.verify(inputPin, this.pin);
     }
 
     /**

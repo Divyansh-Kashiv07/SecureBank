@@ -5,77 +5,68 @@ import com.securebank.gui.ThemeManager;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
+import java.awt.event.*;
+import java.awt.geom.RoundRectangle2D;
 
 /**
- * StyledTextField — a modern text field with placeholder text and dark-themed borders.
+ * StyledTextField — a production-grade text field with smooth animations.
  *
  * Features:
- * - Placeholder text that disappears on focus
- * - Dark border with HSBC Red focus-state color change
- * - Consistent dark theme styling
+ * - Animated focus glow effect
+ * - Smooth border color transitions
+ * - Placeholder text
+ * - Rounded corners
+ * - Anti-aliased rendering
  */
 public class StyledTextField extends JTextField {
 
     private String placeholder;
     private boolean showingPlaceholder;
-    private static final Color PLACEHOLDER_COLOR = ThemeManager.getTextMutedColor();
-    private static final Color BORDER_COLOR = ThemeManager.getBorderColor();
-    private static final Color FOCUS_BORDER_COLOR = ThemeManager.getPrimaryAccentColor();
-    private static final Color TEXT_COLOR = ThemeManager.getTextLightColor();
-    private static final Color BG_COLOR = ThemeManager.getCardColor();
+    private float focusProgress = 0f; // 0..1
+    private Timer focusTimer;
 
-    /**
-     * Creates a styled text field with a placeholder.
-     *
-     * @param placeholder the placeholder text to show when empty
-     */
+    /** Current state colors */
+    private Color currentBorderColor;
+
     public StyledTextField(String placeholder) {
         this.placeholder = placeholder;
         this.showingPlaceholder = true;
+        this.currentBorderColor = ThemeManager.getBorderColor();
 
         setFont(ThemeManager.getFont(14));
-        setBackground(BG_COLOR);
-        setCaretColor(TEXT_COLOR);
+        setBackground(ThemeManager.getCardColor());
+        setCaretColor(ThemeManager.getTextLightColor());
         setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER_COLOR, 1, true),
+                BorderFactory.createLineBorder(ThemeManager.getBorderColor(), 1, true),
                 new EmptyBorder(8, 12, 8, 12)
         ));
-        setPreferredSize(new Dimension(300, 40));
+        setPreferredSize(new Dimension(300, 44));
+        setOpaque(false);
 
         // Show placeholder initially
         setText(placeholder);
-        setForeground(PLACEHOLDER_COLOR);
+        setForeground(ThemeManager.getTextMutedColor());
 
-        // Focus listeners for placeholder behavior
+        // Focus listeners for placeholder behavior and animation
         addFocusListener(new FocusAdapter() {
             @Override
             public void focusGained(FocusEvent e) {
                 if (showingPlaceholder) {
                     setText("");
-                    setForeground(TEXT_COLOR);
+                    setForeground(ThemeManager.getTextLightColor());
                     showingPlaceholder = false;
                 }
-                // Change border color on focus — HSBC Red
-                setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2, true),
-                        new EmptyBorder(7, 11, 7, 11)
-                ));
+                startFocusAnimation(true);
             }
 
             @Override
             public void focusLost(FocusEvent e) {
                 if (getText().isEmpty()) {
                     setText(StyledTextField.this.placeholder);
-                    setForeground(PLACEHOLDER_COLOR);
+                    setForeground(ThemeManager.getTextMutedColor());
                     showingPlaceholder = true;
                 }
-                // Revert border color
-                setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(BORDER_COLOR, 1, true),
-                        new EmptyBorder(8, 12, 8, 12)
-                ));
+                startFocusAnimation(false);
             }
         });
     }
@@ -86,7 +77,82 @@ public class StyledTextField extends JTextField {
     public StyledTextField() {
         this("");
         showingPlaceholder = false;
-        setForeground(TEXT_COLOR);
+        setForeground(ThemeManager.getTextLightColor());
+    }
+
+    /**
+     * Starts the focus glow animation.
+     */
+    private void startFocusAnimation(boolean forward) {
+        if (focusTimer != null && focusTimer.isRunning()) {
+            focusTimer.stop();
+        }
+
+        focusTimer = new Timer(16, e -> {
+            boolean needsUpdate = false;
+            if (forward && focusProgress < 1.0f) {
+                focusProgress = Math.min(1.0f, focusProgress + 0.1f);
+                needsUpdate = true;
+            } else if (!forward && focusProgress > 0.0f) {
+                focusProgress = Math.max(0.0f, focusProgress - 0.1f);
+                needsUpdate = true;
+            }
+
+            // Interpolate border color
+            currentBorderColor = ThemeManager.lerp(
+                    ThemeManager.getBorderColor(),
+                    ThemeManager.getPrimaryAccentColor(),
+                    focusProgress);
+
+            if (needsUpdate) {
+                repaint();
+            } else {
+                focusTimer.stop();
+            }
+        });
+        focusTimer.setRepeats(true);
+        focusTimer.start();
+    }
+
+    /**
+     * Custom paint for rounded corners and glow effect.
+     */
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int w = getWidth();
+        int h = getHeight();
+        int radius = ThemeManager.RADIUS_SM;
+
+        // Focus glow
+        if (focusProgress > 0) {
+            for (int i = 3; i >= 0; i--) {
+                float alpha = focusProgress * 0.1f * (4 - i);
+                g2.setColor(new Color(
+                        ThemeManager.getPrimaryAccentColor().getRed(),
+                        ThemeManager.getPrimaryAccentColor().getGreen(),
+                        ThemeManager.getPrimaryAccentColor().getBlue(),
+                        Math.max(0, (int)(alpha * 255))));
+                g2.fill(new RoundRectangle2D.Float(-i, -i, w + 2 * i, h + 2 * i,
+                        radius + i, radius + i));
+            }
+        }
+
+        // Background
+        g2.setColor(getBackground());
+        g2.fill(new RoundRectangle2D.Float(0, 0, w, h, radius, radius));
+
+        // Border
+        g2.setColor(currentBorderColor);
+        g2.setStroke(new BasicStroke(focusProgress > 0 ? 1.5f : 1.0f));
+        g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, radius, radius));
+
+        g2.dispose();
+
+        // Draw text
+        super.paintComponent(g);
     }
 
     /**
@@ -108,7 +174,7 @@ public class StyledTextField extends JTextField {
      */
     public void setActualText(String text) {
         showingPlaceholder = false;
-        setForeground(TEXT_COLOR);
+        setForeground(ThemeManager.getTextLightColor());
         setText(text);
     }
 
@@ -117,7 +183,7 @@ public class StyledTextField extends JTextField {
      */
     public void clearField() {
         setText(placeholder);
-        setForeground(PLACEHOLDER_COLOR);
+        setForeground(ThemeManager.getTextMutedColor());
         showingPlaceholder = true;
     }
 }

@@ -18,8 +18,11 @@
 - **Fund transfers** — Account-to-account with deadlock-safe lock ordering
 - **Loan management** — Application, approval, EMI calculation, disbursement
 - **Transaction history** — Searchable/filterable with Lambda/Stream expressions
-- **File persistence** — Character stream (BufferedReader/BufferedWriter) based data storage
-- **Async logging** — Daemon thread transaction logger with BlockingQueue
+- **File persistence** — Atomic, crash-safe saves (temp file + atomic move) with tolerant loading
+- **Async logging** — Daemon thread transaction logger with BlockingQueue; drains on shutdown so no logged transaction is lost
+- **Hashed PINs** — Salted PBKDF2-HMAC-SHA256 (no plaintext PINs stored)
+- **Authenticated sessions** — Login-bound connections, per-customer authorization (IDOR-safe), login lockout
+- **Unit + integration tests** — 95 JUnit 5 tests: domain, persistence, protocol-level security, and concurrency (deadlock/lost-update/overdraw)
 - **Dark mode** — FlatLightLaf ↔ FlatDarkLaf toggle
 - **Generic Repository** — Reusable `Repository<T>` CRUD pattern with Predicate-based search
 - **Reports & Analytics** — TreeMap-sorted reports with Java2D bar charts
@@ -137,9 +140,33 @@ sequenceDiagram
 
 ## 📁 Package Structure
 
-```
-com.securebank/
-├── core/                    → Domain model classes
+## 🔒 Security Model
+
+SecureBank treats banking security as a feature, not an afterthought (see `docs/adr/ADR-002-security-model.md` for the full decision record):
+
+- **PIN storage** — PINs are never stored in plaintext. Each PIN gets a unique random salt and is stored as `pbkdf2:iterations:salt:hash`. Verification uses constant-time comparison. Legacy plaintext records (from old data files) are transparently upgraded to hashes on the customer's next successful login. Demo PINs are hashed at seed time.
+- **Authentication** — Every TCP connection starts unauthenticated and must `LOGIN` before any other command. Login failures return one generic message (unknown customer and wrong PIN are indistinguishable — no user enumeration), and 5 consecutive failures lock the session for 5 minutes.
+- **Authorization (IDOR protection)** — A connection is bound to one customer's session. Every command is checked against that session: customers can only view and operate accounts, loans, and histories they OWN. Transfers from another customer's account, loan applications on behalf of others, and cross-customer data reads are all refused and logged server-side.
+- **Protocol hardening** — Requests are size-capped, `SAVE` is a server-side-only command, internal errors return generic messages (details stay in server logs), and `QUIT` closes the connection cleanly. LOGIN lines are masked in server logs (no PINs on screen).
+- **Durability** — All saves write to a temp file and atomically move it over the target: a crash or disk-full mid-write can never corrupt an existing data file. The transaction logger drains its queue on shutdown, so a transaction logged just before exit is never lost.
+
+---
+
+## 🧪 Testing
+
+The project has a comprehensive JUnit 5 suite (run with `mvn test`, full gate with `mvn verify`):
+
+| Suite | What it proves |
+|-------|----------------|
+| `core/*` | Deposit/withdraw/transfer rules, savings minimum balance, current-account overdraft, frozen accounts, daily limits, polymorphic interest, EMI formula, loan eligibility and lifecycle |
+| `repository/*` | Generic `Repository<T>` (incl. thread-safety under 8 concurrent writers), file round-trips for accounts/customers/loans |
+| `utils/*` | PBKDF2 hashing (salting, constant-time verify, legacy support), atomic-write crash safety |
+| `transactions/*` | Transaction immutability, file round-trip, remark sanitization, logger drain-on-shutdown |
+| `it/*` | **Protocol-level integration tests against a real TCP server**: mandatory login, IDOR attack scenarios (all refused, balances untouched), login lockout, malformed-request resilience, 8-client concurrent deposits with zero lost updates, opposite-direction transfer deadlock-freedom, concurrent-withdrawal floor guarantee |
+
+---
+
+## 🚀 Setup & Run Instructions
 │   ├── Account.java         → Abstract base class (synchronized, overloaded)
 │   ├── SavingsAccount.java  → 4% interest, extends Account
 │   ├── CurrentAccount.java  → 1% interest, overdraft support
@@ -162,6 +189,7 @@ com.securebank/
 │   ├── InsufficientBalanceException.java
 │   ├── InvalidPinException.java
 │   ├── AccountNotFoundException.java
+│   ├── AccountInactiveException.java
 │   ├── DailyLimitExceededException.java
 │   └── DuplicateAccountException.java
 │
@@ -257,7 +285,7 @@ package.bat
 
 | Customer ID | Name | PIN | Accounts |
 |------------|------|-----|----------|
-| CUSTOMER-1 | Deepanshu Kumar | 1234 | ACC-001001 (Savings ₹25,000), ACC-001002 (Current ₹50,000) |
+| CUSTOMER-1 | Divyansh Kashiv | 1234 | ACC-001001 (Savings ₹25,000), ACC-001002 (Current ₹50,000) |
 | CUSTOMER-2 | Priya Sharma | 5678 | ACC-001003 (Savings ₹15,000) |
 | CUSTOMER-3 | Rahul Verma | 9012 | ACC-001004 (Savings ₹35,000) |
 
@@ -304,7 +332,7 @@ package.bat
 | 5 | **Deadlock during transfers** | The `transferTo()` method uses lock ordering (locks by account number order) to prevent deadlocks. Never change the lock order. |
 | 6 | **Data lost after restart** | Ensure `saveToFile()` is called before shutdown. The shutdown hook in `Main.java` handles this automatically. |
 | 7 | **FlatLaf not loading** | The FlatLaf JAR must be on the classpath. Use the Maven shade plugin to build a fat JAR that includes it. |
-| 8 | **TransactionLogger not writing** | Check that the `data/` directory exists and is writable. The logger is a daemon thread — if the app exits too fast, some logs may be lost. |
+| 8 | **TransactionLogger not writing** | Check that the `data/` directory exists and is writable. The logger drains its queue on shutdown, so transactions logged before exit are never lost. |
 
 ---
 
@@ -357,7 +385,7 @@ The following enhancements are planned for **v2**, to be built AFTER the current
 - **Spring Boot + REST API** — replace TCP sockets with RESTful endpoints
 - **Database** — migrate from file-based persistence to MySQL/PostgreSQL using JDBC or Hibernate
 - **Web frontend** — React-based dashboard alongside the Swing client
-- **Authentication** — JWT-based auth with password hashing (bcrypt)
+- **Authentication** — Session tokens with idle timeout and signed issuance (PBKDF2 PIN hashing is already implemented)
 - **Multi-branch support** — cross-branch transfers, branch-specific accounts
 - **Email notifications** — transaction alerts via JavaMail
 - **PDF statements** — generate downloadable account statements using iText
@@ -498,7 +526,7 @@ To quickly evaluate the software during the viva, please follow these steps to l
 
 | Customer ID | PIN  | Owner Name       | Notes                                      |
 |-------------|------|------------------|--------------------------------------------|
-| `CUSTOMER-1`| `1234` | Deepanshu Kumar | Has both a Savings and a Current account.  |
+| `CUSTOMER-1`| `1234` | Divyansh Kashiv | Has both a Savings and a Current account.  |
 | `CUSTOMER-2`| `5678` | Priya Sharma    | Great for testing fund transfers.          |
 | `CUSTOMER-3`| `9012` | Rahul Verma     | Test loan applications with this account.  |
 

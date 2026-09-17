@@ -57,6 +57,7 @@ public class SecureBankApp extends JFrame {
     private TransactionHistoryPanel historyPanel;
     private ReportsPanel reportsPanel;
     private AccountsPanel accountsPanel;
+    private BeneficiariesPanel beneficiariesPanel;
     private SettingsPanel settingsPanel;
 
     /**
@@ -99,6 +100,7 @@ public class SecureBankApp extends JFrame {
         contentPanel.add(loanPanel, "Loans");
         contentPanel.add(historyPanel, "History");
         contentPanel.add(reportsPanel, "Reports");
+        contentPanel.add(beneficiariesPanel, "Beneficiaries");
         contentPanel.add(settingsPanel, "Settings");
 
         // Assemble the frame
@@ -136,6 +138,10 @@ public class SecureBankApp extends JFrame {
         // Accounts
         accountsPanel = new AccountsPanel(this);
         accountsPanel.setClient(client);
+
+        // Beneficiaries (saved payees)
+        beneficiariesPanel = new BeneficiariesPanel(this);
+        beneficiariesPanel.setClient(client);
 
         // Deposit/Withdraw
         depositWithdrawPanel = new DepositWithdrawPanel(this);
@@ -179,6 +185,7 @@ public class SecureBankApp extends JFrame {
         historyPanel.setSessionData(accountNumbers);
         reportsPanel.setSessionData(customerId, accountNumbers);
         accountsPanel.setSessionData(customerId, accountNumbers);
+        beneficiariesPanel.setSessionData(customerId);
 
         // Show sidebar and navigate to dashboard
         sidebar.setVisible(true);
@@ -209,6 +216,7 @@ public class SecureBankApp extends JFrame {
             case "Loans" -> loanPanel.loadLoanStatus();
             case "Reports" -> reportsPanel.loadReport();
             case "Accounts" -> accountsPanel.loadAccounts();
+            case "Beneficiaries" -> beneficiariesPanel.loadBeneficiaries();
         }
     }
 
@@ -240,6 +248,7 @@ public class SecureBankApp extends JFrame {
         historyPanel.setClient(client);
         reportsPanel.setClient(client);
         accountsPanel.setClient(client);
+        beneficiariesPanel.setClient(client);
     }
 
     /**
@@ -270,6 +279,7 @@ public class SecureBankApp extends JFrame {
         historyPanel.buildPanel();
         reportsPanel.buildPanel();
         accountsPanel.buildPanel();
+        beneficiariesPanel.buildPanel();
         settingsPanel.buildPanel();
 
         // Re-select Settings tab in sidebar (index 7) since we're on Settings when changing language

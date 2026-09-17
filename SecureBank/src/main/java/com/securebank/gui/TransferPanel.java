@@ -9,6 +9,11 @@ import java.awt.*;
 
 /**
  * TransferPanel — fund transfer form between accounts.
+ *
+ * Features:
+ * - Polished form with glass card effect
+ * - Source/destination account fields
+ * - Amount validation
  */
 public class TransferPanel extends JPanel {
 
@@ -22,8 +27,6 @@ public class TransferPanel extends JPanel {
     private StyledTextField amountField;
     private StyledButton transferButton;
 
-
-
     public TransferPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
         setLayout(new GridBagLayout());
@@ -35,7 +38,8 @@ public class TransferPanel extends JPanel {
         removeAll();
         setBackground(ThemeManager.getBackgroundColor());
 
-        CardPanel formCard = new CardPanel(AppLanguage.get("transfer.title"), StyledButton.ACCENT_TEAL);
+        CardPanel formCard = new CardPanel(AppLanguage.get("transfer.title"),
+                ThemeManager.getPrimaryAccentColor());
         formCard.setPreferredSize(new Dimension(480, 440));
         formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
         formCard.setBorder(new EmptyBorder(20, 35, 20, 35));
@@ -68,7 +72,8 @@ public class TransferPanel extends JPanel {
         formCard.add(Box.createVerticalStrut(25));
 
         // Transfer button
-        transferButton = new StyledButton(AppLanguage.get("transfer.button"), StyledButton.ACCENT_TEAL);
+        transferButton = new StyledButton(AppLanguage.get("transfer.button"),
+                ThemeManager.getPrimaryAccentColor());
         transferButton.setMaximumSize(new Dimension(400, 44));
         transferButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         transferButton.addActionListener(e -> handleTransfer());
@@ -134,11 +139,13 @@ public class TransferPanel extends JPanel {
                 try {
                     String response = get();
                     if (response == null) {
-                        NotificationPanel.showError(parentFrame, AppLanguage.get("common.server.error"));
+                        NotificationPanel.showError(parentFrame,
+                                AppLanguage.get("common.server.error"));
                         return;
                     }
                     if (response.startsWith("OK|")) {
-                        NotificationPanel.showSuccess(parentFrame, AppLanguage.get("transfer.success"));
+                        NotificationPanel.showSuccess(parentFrame,
+                                AppLanguage.get("transfer.success"));
                         toAccountField.clearField();
                         amountField.clearField();
                     } else {
@@ -147,7 +154,8 @@ public class TransferPanel extends JPanel {
                         NotificationPanel.showError(parentFrame, error);
                     }
                 } catch (Exception e) {
-                    NotificationPanel.showError(parentFrame, AppLanguage.get("common.error") + ": " + e.getMessage());
+                    NotificationPanel.showError(parentFrame,
+                            AppLanguage.get("common.error") + ": " + e.getMessage());
                 }
             }
         }.execute();

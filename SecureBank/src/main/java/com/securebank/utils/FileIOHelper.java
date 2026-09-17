@@ -1,6 +1,7 @@
 package com.securebank.utils;
 
 import com.securebank.core.Account;
+import com.securebank.core.Beneficiary;
 import com.securebank.core.CurrentAccount;
 import com.securebank.core.Customer;
 import com.securebank.core.SavingsAccount;
@@ -8,9 +9,12 @@ import com.securebank.loans.Loan;
 import com.securebank.transactions.Transaction;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,110 +29,157 @@ import java.util.List;
  *
  * FILE FORMAT:
  * Each entity is stored as a pipe-delimited (|) line in a plain text file.
- * The files are stored in a "data/" directory relative to the application root.
+ * The files are stored in the configurable data directory (system property
+ * "securebank.data.dir", default "data").
  *
- * VIVA NOTE — CHARACTER STREAMS vs BYTE STREAMS:
- * - Character Streams (Reader/Writer): Handle text data, automatically manage
- *   character encoding (UTF-8, etc.). Use for human-readable files.
- * - Byte Streams (InputStream/OutputStream): Handle raw binary data. Use for
- *   images, serialized objects, etc.
- *
- * We use Character Streams because our data files are human-readable text.
- * BufferedReader/BufferedWriter add an internal buffer (default 8KB) that
- * reduces the number of actual disk I/O operations → better performance.
+ * RELIABILITY (Phase 4):
+ * - SAVES ARE ATOMIC: every save writes to a temporary file in the same
+ *   directory and then atomically moves it over the target. A crash or
+ *   disk-full error mid-write can therefore never corrupt or truncate an
+ *   existing data file — the old copy survives intact.
+ * - SAVE FAILURES ARE SURFACED: save methods throw IOException instead of
+ *   silently swallowing errors, so the server can tell the client when data
+ *   was NOT persisted (silently losing money movements is unacceptable).
+ * - LOADS ARE TOLERANT: a malformed line is skipped and logged, so one bad
+ *   record cannot make the whole bank unbootable.
  */
 public class FileIOHelper {
 
-    /** Directory where all data files are stored */
-    private static final String DATA_DIR = "data";
+    /**
+     * Directory where all data files are stored.
+     *
+     * Defaults to "data" (the application root's data directory). Tests set the
+     * "securebank.data.dir" system property BEFORE the first FileIOHelper use
+     * to redirect persistence to an isolated temporary directory, so tests never
+     * touch the application's real data files.
+     *
+     * Read on every call (not pinned in a static final): each test class gets a
+     * genuinely isolated directory even though the JVM (and this class) is
+     * reused across test classes by Surefire's single fork.
+     */
+    private static String dataDir() {
+        return System.getProperty("securebank.data.dir", "data");
+    }
 
     /** File names for each entity type */
     private static final String ACCOUNTS_FILE = "accounts.dat";
     private static final String CUSTOMERS_FILE = "customers.dat";
-    private static final String TRANSACTIONS_FILE = "transactions.dat";
     private static final String LOANS_FILE = "loans.dat";
+    private static final String BENEFICIARIES_FILE = "beneficiaries.dat";
 
     /**
      * Ensures the data directory exists. Creates it on first run.
      *
-     * RUBRIC: Common debugging point — "file not found on first run."
-     * This method prevents that by creating the directory automatically.
+     * @throws IOException if the directory cannot be created
      */
-    public static void ensureDataDirectory() {
-        // RUBRIC: Unit 3 — try-catch with exception handling
+    public static void ensureDataDirectory() throws IOException {
+        Path dataPath = Paths.get(dataDir());
+        if (!Files.exists(dataPath)) {
+            Files.createDirectories(dataPath);
+            System.out.println("[FileIO] Created data directory: " + dataPath.toAbsolutePath());
+        }
+    }
+
+    // ==================== ATOMIC WRITE PRIMITIVE ====================
+
+    /**
+     * Writes all lines to the target file ATOMICALLY:
+     * 1. Write to a temp file in the same directory (same filesystem → move is atomic)
+     * 2. Atomically move the temp file over the target
+     *
+     * If anything fails at any point, the target file's previous content is
+     * untouched. The temp file is cleaned up on failure.
+     *
+     * Package-private static so tests can exercise failure paths directly.
+     *
+     * @param target path of the file to write
+     * @param lines  complete file content, one list entry per line
+     * @throws IOException if writing or moving fails (target left unchanged)
+     */
+    static void writeFileAtomically(Path target, List<String> lines) throws IOException {
+        Path parent = target.toAbsolutePath().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        Path tmp = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
         try {
-            Path dataPath = Paths.get(DATA_DIR);
-            if (!Files.exists(dataPath)) {
-                Files.createDirectories(dataPath);
-                System.out.println("[FileIO] Created data directory: " + dataPath.toAbsolutePath());
+            try (BufferedWriter writer = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
+                for (String line : lines) {
+                    writer.write(line);
+                    writer.newLine();
+                }
+            }
+            try {
+                Files.move(tmp, target,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                // Some filesystems (e.g., certain network shares) cannot move
+                // atomically — the non-atomic move is still crash-safe for the
+                // WRITE phase, which is where corruption would occur
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
-            System.err.println("[FileIO] ERROR: Could not create data directory: " + e.getMessage());
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException cleanupEx) {
+                System.err.println("[FileIO] Could not clean temp file " + tmp + ": " + cleanupEx.getMessage());
+            }
+            throw e;
         }
     }
 
     // ==================== ACCOUNT PERSISTENCE ====================
 
     /**
-     * Saves all accounts to the accounts data file.
-     *
-     * RUBRIC: Unit 4 — BufferedWriter (Character Stream) for file output.
-     * RUBRIC: Unit 3 — try-with-resources (auto-closes the writer in finally equivalent).
+     * Saves all accounts to the accounts data file (atomic).
      *
      * @param accounts the list of accounts to save
+     * @throws IOException if the data cannot be written — callers must handle this
      */
-    public static void saveAccounts(List<Account> accounts) {
+    public static void saveAccounts(List<Account> accounts) throws IOException {
         ensureDataDirectory();
-        String filePath = DATA_DIR + File.separator + ACCOUNTS_FILE;
+        Path filePath = Paths.get(dataDir(), ACCOUNTS_FILE);
 
-        // try-with-resources: automatically calls writer.close() when done
-        // This is equivalent to using a finally block to close the resource
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-
-            for (Account account : accounts) {
-                writer.write(account.toFileString());
-                writer.newLine();
-
-                // Also save each account's transactions
-                // RUBRIC: nested try — saving transactions inside the account loop
-                try {
-                    saveTransactionsForAccount(account);
-                } catch (IOException innerEx) {
-                    // Multiple catch scenario — inner exception doesn't stop outer save
-                    System.err.println("[FileIO] Warning: Could not save transactions for " +
-                            account.getAccountNumber() + ": " + innerEx.getMessage());
-                }
-            }
-
-            System.out.println("[FileIO] Saved " + accounts.size() + " accounts to " + filePath);
-
-        } catch (IOException e) {
-            System.err.println("[FileIO] ERROR saving accounts: " + e.getMessage());
+        List<String> lines = new ArrayList<>();
+        for (Account account : accounts) {
+            lines.add(account.toFileString());
         }
+        writeFileAtomically(filePath, lines);
+
+        // Also persist each account's transactions
+        for (Account account : accounts) {
+            try {
+                saveTransactionsForAccount(account);
+            } catch (IOException innerEx) {
+                // One account's history failing should not block the others,
+                // but the failure is NOT silent — it is logged loudly
+                System.err.println("[FileIO] CRITICAL: Could not save transactions for " +
+                        account.getAccountNumber() + ": " + innerEx.getMessage());
+            }
+        }
+
+        System.out.println("[FileIO] Saved " + accounts.size() + " accounts to " + filePath);
     }
 
     /**
      * Loads all accounts from the accounts data file.
-     *
-     * RUBRIC: Unit 4 — BufferedReader (Character Stream) for file input.
-     * RUBRIC: Unit 3 — Multiple catch blocks, finally block equivalent.
+     * Tolerant: malformed lines are skipped and logged.
      *
      * @return list of loaded accounts (empty list if file doesn't exist)
      */
     public static List<Account> loadAccounts() {
-        ensureDataDirectory();
+        ensureDataDirectoryQuietly();
         List<Account> accounts = new ArrayList<>();
-        String filePath = DATA_DIR + File.separator + ACCOUNTS_FILE;
-        File file = new File(filePath);
+        Path filePath = Paths.get(dataDir(), ACCOUNTS_FILE);
+        File file = filePath.toFile();
 
         if (!file.exists()) {
             System.out.println("[FileIO] No accounts file found. Starting fresh.");
             return accounts;
         }
 
-        BufferedReader reader = null;
-        try {
-            reader = new BufferedReader(new FileReader(filePath));
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
             String line;
             int lineNumber = 0;
 
@@ -137,11 +188,9 @@ public class FileIOHelper {
                 line = line.trim();
                 if (line.isEmpty()) continue;
 
-                // RUBRIC: nested try — parse each line independently
                 try {
                     Account account = parseAccountLine(line);
                     if (account != null) {
-                        // Load transactions for this account
                         List<Transaction> transactions = loadTransactionsForAccount(
                                 account.getAccountNumber());
                         for (Transaction txn : transactions) {
@@ -150,11 +199,9 @@ public class FileIOHelper {
                         accounts.add(account);
                     }
                 } catch (NumberFormatException e) {
-                    // RUBRIC: multiple catch — specific exception type
                     System.err.println("[FileIO] Line " + lineNumber +
                             ": Number format error: " + e.getMessage());
                 } catch (Exception e) {
-                    // RUBRIC: multiple catch — general fallback
                     System.err.println("[FileIO] Line " + lineNumber +
                             ": Parse error: " + e.getMessage());
                 }
@@ -162,21 +209,8 @@ public class FileIOHelper {
 
             System.out.println("[FileIO] Loaded " + accounts.size() + " accounts from " + filePath);
 
-        } catch (FileNotFoundException e) {
-            System.out.println("[FileIO] Accounts file not found: " + filePath);
         } catch (IOException e) {
             System.err.println("[FileIO] ERROR reading accounts: " + e.getMessage());
-        } finally {
-            // RUBRIC: Unit 3 — finally block for cleanup
-            // This block ALWAYS runs, even if an exception occurred above.
-            // It ensures the reader is closed and system resources are released.
-            if (reader != null) {
-                try {
-                    reader.close();
-                } catch (IOException e) {
-                    System.err.println("[FileIO] ERROR closing reader: " + e.getMessage());
-                }
-            }
         }
 
         return accounts;
@@ -184,7 +218,7 @@ public class FileIOHelper {
 
     /**
      * Parses a pipe-delimited line into an Account object.
-     * Format: accountNumber|holderName|customerId|balance|accountType|dailyLimit|active
+     * Format: accountNumber|holderName|customerId|balance|accountType|dailyLimit|active[|overdraftLimit]
      */
     private static Account parseAccountLine(String line) {
         String[] parts = line.split("\\|", -1);
@@ -197,7 +231,6 @@ public class FileIOHelper {
         String accountType = parts[4];
 
         Account account;
-        // Control statement to determine which subclass to instantiate
         if ("Savings".equalsIgnoreCase(accountType)) {
             account = new SavingsAccount(accountNumber, holderName, customerId, 0);
         } else if ("Current".equalsIgnoreCase(accountType)) {
@@ -210,7 +243,6 @@ public class FileIOHelper {
         // Set the balance from file (bypasses deposit logic)
         account.setBalanceFromFile(balance);
 
-        // Set daily limit and active status if available
         if (parts.length > 5) {
             try {
                 account.setDailyLimit(Double.parseDouble(parts[5]));
@@ -219,6 +251,12 @@ public class FileIOHelper {
         if (parts.length > 6) {
             account.setActive(Boolean.parseBoolean(parts[6]));
         }
+        // Field 8 (optional): overdraft limit for current accounts
+        if (parts.length > 7 && account instanceof CurrentAccount) {
+            try {
+                ((CurrentAccount) account).setOverdraftLimit(Double.parseDouble(parts[7]));
+            } catch (NumberFormatException ignored) { }
+        }
 
         return account;
     }
@@ -226,19 +264,15 @@ public class FileIOHelper {
     // ==================== TRANSACTION PERSISTENCE ====================
 
     /**
-     * Saves transactions for a specific account to a per-account file.
-     * File name: data/txn_ACC-001001.dat
+     * Saves transactions for a specific account to a per-account file (atomic).
      */
     private static void saveTransactionsForAccount(Account account) throws IOException {
-        String filePath = DATA_DIR + File.separator + "txn_" +
-                account.getAccountNumber() + ".dat";
-
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            for (Transaction txn : account.getTransactionHistory()) {
-                writer.write(txn.toFileString());
-                writer.newLine();
-            }
+        Path filePath = Paths.get(dataDir(), "txn_" + account.getAccountNumber() + ".dat");
+        List<String> lines = new ArrayList<>();
+        for (Transaction txn : account.getTransactionHistory()) {
+            lines.add(txn.toFileString());
         }
+        writeFileAtomically(filePath, lines);
     }
 
     /**
@@ -246,12 +280,12 @@ public class FileIOHelper {
      */
     private static List<Transaction> loadTransactionsForAccount(String accountNumber) {
         List<Transaction> transactions = new ArrayList<>();
-        String filePath = DATA_DIR + File.separator + "txn_" + accountNumber + ".dat";
-        File file = new File(filePath);
+        Path filePath = Paths.get(dataDir(), "txn_" + accountNumber + ".dat");
+        File file = filePath.toFile();
 
         if (!file.exists()) return transactions;
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -273,38 +307,38 @@ public class FileIOHelper {
     // ==================== CUSTOMER PERSISTENCE ====================
 
     /**
-     * Saves all customers to the customers data file.
+     * Saves all customers to the customers data file (atomic).
+     *
+     * @throws IOException if the data cannot be written — callers must handle this
      */
-    public static void saveCustomers(List<Customer> customers) {
+    public static void saveCustomers(List<Customer> customers) throws IOException {
         ensureDataDirectory();
-        String filePath = DATA_DIR + File.separator + CUSTOMERS_FILE;
+        Path filePath = Paths.get(dataDir(), CUSTOMERS_FILE);
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            for (Customer customer : customers) {
-                writer.write(customer.toFileString());
-                writer.newLine();
-            }
-            System.out.println("[FileIO] Saved " + customers.size() + " customers to " + filePath);
-        } catch (IOException e) {
-            System.err.println("[FileIO] ERROR saving customers: " + e.getMessage());
+        List<String> lines = new ArrayList<>();
+        for (Customer customer : customers) {
+            lines.add(customer.toFileString());
         }
+        writeFileAtomically(filePath, lines);
+
+        System.out.println("[FileIO] Saved " + customers.size() + " customers to " + filePath);
     }
 
     /**
      * Loads all customers from the customers data file.
      */
     public static List<Customer> loadCustomers() {
-        ensureDataDirectory();
+        ensureDataDirectoryQuietly();
         List<Customer> customers = new ArrayList<>();
-        String filePath = DATA_DIR + File.separator + CUSTOMERS_FILE;
-        File file = new File(filePath);
+        Path filePath = Paths.get(dataDir(), CUSTOMERS_FILE);
+        File file = filePath.toFile();
 
         if (!file.exists()) {
             System.out.println("[FileIO] No customers file found. Starting fresh.");
             return customers;
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -326,35 +360,35 @@ public class FileIOHelper {
     // ==================== LOAN PERSISTENCE ====================
 
     /**
-     * Saves all loans to the loans data file.
+     * Saves all loans to the loans data file (atomic).
+     *
+     * @throws IOException if the data cannot be written — callers must handle this
      */
-    public static void saveLoans(List<Loan> loans) {
+    public static void saveLoans(List<Loan> loans) throws IOException {
         ensureDataDirectory();
-        String filePath = DATA_DIR + File.separator + LOANS_FILE;
+        Path filePath = Paths.get(dataDir(), LOANS_FILE);
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            for (Loan loan : loans) {
-                writer.write(loan.toFileString());
-                writer.newLine();
-            }
-            System.out.println("[FileIO] Saved " + loans.size() + " loans.");
-        } catch (IOException e) {
-            System.err.println("[FileIO] ERROR saving loans: " + e.getMessage());
+        List<String> lines = new ArrayList<>();
+        for (Loan loan : loans) {
+            lines.add(loan.toFileString());
         }
+        writeFileAtomically(filePath, lines);
+
+        System.out.println("[FileIO] Saved " + loans.size() + " loans.");
     }
 
     /**
      * Loads all loans from the loans data file.
      */
     public static List<Loan> loadLoans() {
-        ensureDataDirectory();
+        ensureDataDirectoryQuietly();
         List<Loan> loans = new ArrayList<>();
-        String filePath = DATA_DIR + File.separator + LOANS_FILE;
-        File file = new File(filePath);
+        Path filePath = Paths.get(dataDir(), LOANS_FILE);
+        File file = filePath.toFile();
 
         if (!file.exists()) return loans;
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -371,5 +405,70 @@ public class FileIOHelper {
         }
 
         return loans;
+    }
+
+    // ==================== BENEFICIARY PERSISTENCE ====================
+
+    /**
+     * Saves all beneficiaries to the beneficiaries data file (atomic).
+     *
+     * @throws IOException if the data cannot be written — callers must handle this
+     */
+    public static void saveBeneficiaries(List<Beneficiary> beneficiaries) throws IOException {
+        ensureDataDirectory();
+        Path filePath = Paths.get(dataDir(), BENEFICIARIES_FILE);
+
+        List<String> lines = new ArrayList<>();
+        for (Beneficiary beneficiary : beneficiaries) {
+            lines.add(beneficiary.toFileString());
+        }
+        writeFileAtomically(filePath, lines);
+
+        System.out.println("[FileIO] Saved " + beneficiaries.size() + " beneficiaries.");
+    }
+
+    /**
+     * Loads all beneficiaries from the beneficiaries data file.
+     * Tolerant: malformed lines are skipped and logged.
+     */
+    public static List<Beneficiary> loadBeneficiaries() {
+        ensureDataDirectoryQuietly();
+        List<Beneficiary> beneficiaries = new ArrayList<>();
+        Path filePath = Paths.get(dataDir(), BENEFICIARIES_FILE);
+
+        if (!Files.exists(filePath)) return beneficiaries;
+
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
+            String line;
+            int lineNumber = 0;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                Beneficiary beneficiary = Beneficiary.fromFileString(line);
+                if (beneficiary != null) {
+                    beneficiaries.add(beneficiary);
+                } else {
+                    System.err.println("[FileIO] Skipping malformed beneficiary line " + lineNumber);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[FileIO] ERROR loading beneficiaries: " + e.getMessage());
+        }
+
+        return beneficiaries;
+    }
+
+    /**
+     * Best-effort directory creation for read paths (loading must not fail
+     * hard just because the directory can't be created).
+     */
+    private static void ensureDataDirectoryQuietly() {
+        try {
+            ensureDataDirectory();
+        } catch (IOException e) {
+            System.err.println("[FileIO] Could not create data directory: " + e.getMessage());
+        }
     }
 }

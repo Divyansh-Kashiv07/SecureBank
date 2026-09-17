@@ -127,7 +127,9 @@ public class Transaction {
         sb.append(String.format("%.2f", amount)).append("|");
         sb.append(String.format("%.2f", balanceAfter)).append("|");
         sb.append(timestamp.format(DATE_FORMAT)).append("|");
-        sb.append(remarks);
+        // Remarks are free text: strip pipes at the serialization boundary so a
+        // remark can never add fields to the pipe-delimited record
+        sb.append(remarks.replace("|", "/"));
         return sb.toString();
     }
 
