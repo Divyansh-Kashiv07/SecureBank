@@ -81,16 +81,16 @@ Response: OK|result_data   OR   ERROR|error_message
 
 ```mermaid
 flowchart TD
-    A["🖥️ Launch Main.java<br/>(CLI arg: port)"] --> B["Set up FlatLaf<br/>Look & Feel"]
-    B --> C["Start BankServer<br/>(daemon thread)"]
-    C --> D["Load data<br/>from files"]
+    A["🖥️ Launch Main.java (CLI arg: port)"] --> B["Set up FlatLaf Look & Feel"]
+    B --> C["Start BankServer (daemon thread)"]
+    C --> D["Load data from files"]
     D --> E{"First run?"}
-    E -->|Yes| F["Seed demo<br/>accounts"]
-    E -->|No| G["Data loaded<br/>from files"]
+    E -->|Yes| F["Seed demo accounts"]
+    E -->|No| G["Data loaded from files"]
     F --> G
-    G --> H["Start TransactionLogger<br/>(daemon thread)"]
-    H --> I["Create BankClient<br/>(Socket connection)"]
-    I --> J["Launch Swing GUI<br/>(EDT)"]
+    G --> H["Start TransactionLogger (daemon thread)"]
+    H --> I["Create BankClient (Socket connection)"]
+    I --> J["Launch Swing GUI (EDT)"]
     J --> K["Login Screen"]
     K --> L{"Auth OK?"}
     L -->|Yes| M["Dashboard"]
@@ -101,9 +101,9 @@ flowchart TD
     M --> Q["Transaction History"]
     M --> R["Reports"]
     M --> S["Beneficiaries"]
-    N & O & P --> T["BankService<br/>(business logic)"]
-    T --> U["Server processes<br/>(synchronized)"]
-    U --> V["Update balance<br/>+ Log transaction"]
+    N & O & P --> T["BankService (business logic)"]
+    T --> U["Server processes (synchronized)"]
+    U --> V["Update balance + Log transaction"]
     V --> W["Save to files"]
     W --> X["Response to GUI"]
     X --> M
@@ -133,7 +133,7 @@ sequenceDiagram
     rect rgb(255, 230, 230)
         Note over Handler,Account: CRITICAL SECTION — synchronized
         Handler->>Account: deposit(5000, "Salary")
-        Note over Account: ⚠️ synchronized — only ONE<br/>thread can be here at a time
+        Note over Account: ⚠️ synchronized — only ONE thread can be here at a time
         Account->>Account: balance += 5000
         Account->>Account: Create Transaction object
         Account->>Account: Add to transactionHistory
